@@ -1,0 +1,13 @@
+[package]
+name = "vector-store-relevancy-benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+bytemuck = "1.16.1"
+memmap2 = "0.9.4"
+arroy = { path = "../arroy" }
+heed = "0.20.3"
+tempfile = "3.10.1"
+rand = "0.8.5"
