@@ -1,4 +1,6 @@
+use std::fs::File;
 use std::mem;
+use std::num::NonZeroUsize;
 use std::{fmt, marker::PhantomData};
 
 use arroy::distances::*;
@@ -6,73 +8,109 @@ use arroy::{
     internals::{self, Leaf, NodeCodec, UnalignedVector},
     Database, Distance, ItemId, Writer,
 };
+use byte_unit::{Byte, UnitType};
 use bytemuck::{AnyBitPattern, PodCastError};
 use heed::{EnvOpenOptions, RwTxn};
+use memmap2::Mmap;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-const TWENTY_HUNDRED_MIB: usize = 2 * 1024 * 1024 * 1024;
+const TWENTY_HUNDRED_MIB: usize = 200 * 1024 * 1024 * 1024;
+
+pub const RECALL_TESTED: [usize; 6] = [1, 10, 20, 50, 100, 500];
 
 pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
-    let recall_tested = [1, 10, 20, 50, 100, 500];
+    println!("{} vectors are used for this measure", vectors.len());
+    println!("Recall tested is {RECALL_TESTED:?}");
 
-    for (distance_name, func) in &[
-        (
-            BinaryQuantizedAngular::name(),
-            &measure_distance::<BinaryQuantizedAngular, Angular>
-                as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
-        (
-            Angular::name(),
-            &measure_distance::<Angular, Angular> as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
-        (
-            BinaryQuantizedManhattan::name(),
-            &measure_distance::<BinaryQuantizedManhattan, Manhattan>
-                as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
-        (
-            Manhattan::name(),
-            &measure_distance::<Manhattan, Manhattan>
-                as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
-        (
-            BinaryQuantizedEuclidean::name(),
-            &measure_distance::<BinaryQuantizedEuclidean, Euclidean>
-                as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
-        (
-            Euclidean::name(),
-            &measure_distance::<Euclidean, Euclidean>
-                as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
-        (
-            DotProduct::name(),
-            &measure_distance::<DotProduct, DotProduct>
-                as &dyn Fn(usize, &[(u32, &[f32])], usize) -> f32,
-        ),
+    for func in &[
+        // angular
+        bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 6>(),
+        bench_arroy_distance::<Angular, 1>(),
+        // manhattan
+        bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
+        bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
+        bench_arroy_distance::<BinaryQuantizedManhattan, 6>(),
+        bench_arroy_distance::<Manhattan, 1>(),
+        // euclidean
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 6>(),
+        bench_arroy_distance::<Euclidean, 1>(),
+        // dot-product
+        bench_arroy_distance::<DotProduct, 1>(),
     ] {
-        let now = std::time::Instant::now();
-        let mut recall = Vec::new();
-        for number_fetched in recall_tested {
-            let rec = (func)(dimensions, vectors, number_fetched);
-            recall.push(Recall(rec));
-        }
-        println!("{distance_name:30}: {recall:?}, took {:?}", now.elapsed());
+        (func)(dimensions, vectors);
     }
 }
 
-pub struct MatLEView<'m, const DIM: usize, T> {
-    bytes: &'m [u8],
+trait ArroyDistance: Distance {
+    type RealDistance: Distance;
+}
+
+macro_rules! arroy_distance {
+    ($distance:ty) => {
+        impl ArroyDistance for $distance {
+            type RealDistance = $distance;
+        }
+    };
+    ($distance:ty => $real:ty) => {
+        impl ArroyDistance for $distance {
+            type RealDistance = $real;
+        }
+    };
+}
+
+arroy_distance!(BinaryQuantizedAngular => Angular);
+arroy_distance!(Angular);
+arroy_distance!(BinaryQuantizedEuclidean => Euclidean);
+arroy_distance!(Euclidean);
+arroy_distance!(BinaryQuantizedManhattan => Manhattan);
+arroy_distance!(Manhattan);
+arroy_distance!(DotProduct);
+
+fn bench_arroy_distance<D: ArroyDistance, const OVERSAMPLING: usize>(
+) -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
+    &measure_distance::<D, D::RealDistance, OVERSAMPLING> as &dyn Fn(usize, &[(u32, &[f32])])
+}
+
+// fn bench_qdrant_distance() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
+//     &measure_qdrant_distance as &dyn Fn(usize, &[(u32, &[f32])])
+// }
+
+pub struct MatLEView<T> {
+    name: &'static str,
+    mmap: Mmap,
+    dimensions: usize,
     _marker: PhantomData<T>,
 }
 
-impl<const DIM: usize, T: AnyBitPattern> MatLEView<'_, DIM, T> {
-    pub fn new(bytes: &[u8]) -> MatLEView<DIM, T> {
-        assert!((bytes.len() / mem::size_of::<T>()) % DIM == 0);
+impl<T: AnyBitPattern> MatLEView<T> {
+    pub fn new(name: &'static str, path: &str, dimensions: usize) -> MatLEView<T> {
+        let file = File::open(path).unwrap();
+        let mmap = unsafe { Mmap::map(&file).unwrap() };
+
+        assert!((mmap.len() / mem::size_of::<T>()) % dimensions == 0);
         MatLEView {
-            bytes,
+            name,
+            mmap,
+            dimensions,
             _marker: PhantomData,
         }
+    }
+
+    pub fn header(&self) {
+        println!(
+            "{} - {} vectors of {} dimensions",
+            self.name,
+            self.len(),
+            self.dimensions
+        );
+    }
+
+    pub fn dimensions(&self) -> usize {
+        self.dimensions
     }
 
     pub fn is_empty(&self) -> bool {
@@ -80,16 +118,16 @@ impl<const DIM: usize, T: AnyBitPattern> MatLEView<'_, DIM, T> {
     }
 
     pub fn len(&self) -> usize {
-        (self.bytes.len() / mem::size_of::<T>()) / DIM
+        (self.mmap.len() / mem::size_of::<T>()) / self.dimensions
     }
 
-    pub fn get(&self, index: usize) -> Option<Result<&[T; DIM], PodCastError>> {
+    pub fn get(&self, index: usize) -> Option<Result<&[T], PodCastError>> {
         let tsize = mem::size_of::<T>();
-        if (index * DIM + DIM) * tsize < self.bytes.len() {
-            let start = index * DIM;
-            let bytes = &self.bytes[start * tsize..(start + DIM) * tsize];
+        if (index * self.dimensions + self.dimensions) * tsize < self.mmap.len() {
+            let start = index * self.dimensions;
+            let bytes = &self.mmap[start * tsize..(start + self.dimensions) * tsize];
             match bytemuck::try_cast_slice::<u8, T>(bytes) {
-                Ok(slice) => Some(Ok(slice.try_into().unwrap())),
+                Ok(slice) => Some(Ok(slice)),
                 Err(e) => Some(Err(e)),
             }
         } else {
@@ -97,20 +135,23 @@ impl<const DIM: usize, T: AnyBitPattern> MatLEView<'_, DIM, T> {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &[T; DIM]> {
+    pub fn iter(&self) -> impl Iterator<Item = &[T]> {
         (0..self.len() - 1).map(|i| self.get(i).unwrap().unwrap())
     }
 
-    pub fn get_all(&self) -> Vec<&[T; DIM]> {
+    pub fn get_all(&self) -> Vec<&[T]> {
         self.iter().collect()
     }
 }
 
-pub fn measure_distance<ArroyDistance: Distance, PerfectDistance: Distance>(
+pub fn measure_distance<
+    ArroyDistance: Distance,
+    PerfectDistance: Distance,
+    const OVERSAMPLING: usize,
+>(
     dimensions: usize,
     points: &[(u32, &[f32])],
-    number_fetched: usize,
-) -> f32 {
+) {
     let dir = tempfile::tempdir().unwrap();
     let env = unsafe {
         EnvOpenOptions::new()
@@ -119,6 +160,7 @@ pub fn measure_distance<ArroyDistance: Distance, PerfectDistance: Distance>(
     }
     .unwrap();
 
+    let now = std::time::Instant::now();
     let mut rng = StdRng::seed_from_u64(13);
     let mut wtxn = env.write_txn().unwrap();
 
@@ -126,32 +168,59 @@ pub fn measure_distance<ArroyDistance: Distance, PerfectDistance: Distance>(
         .create_database::<internals::KeyCodec, NodeCodec<ArroyDistance>>(&mut wtxn, None)
         .unwrap();
     load_into_arroy(&mut rng, &mut wtxn, database, dimensions, points);
+    wtxn.commit().unwrap();
+    let database_size =
+        Byte::from_u64(env.non_free_pages_size().unwrap()).get_appropriate_unit(UnitType::Binary);
+    let rtxn = env.read_txn().unwrap();
 
-    let reader = arroy::Reader::open(&wtxn, 0, database).unwrap();
+    let time_to_index = now.elapsed();
 
-    let mut correctly_retrieved = 0;
-    for _ in 0..100 {
-        let querying = points.choose(&mut rng).unwrap();
+    let now = std::time::Instant::now();
+    let reader = arroy::Reader::open(&rtxn, 0, database).unwrap();
 
-        let relevant = partial_sort_by::<PerfectDistance>(
-            points.iter().map(|(i, v)| (*i, *v)),
-            querying.1,
-            number_fetched,
-        );
+    let mut recalls = Vec::new();
+    for number_fetched in RECALL_TESTED {
+        if number_fetched > points.len() {
+            break;
+        }
+        let mut correctly_retrieved = 0;
+        for _ in 0..100 {
+            let querying = points.choose(&mut rng).unwrap();
 
-        let arroy = reader
-            .nns_by_item(&wtxn, querying.0, number_fetched, None, None)
-            .unwrap()
-            .unwrap();
+            let relevant = partial_sort_by::<PerfectDistance>(
+                points.iter().map(|(i, v)| (*i, *v)),
+                querying.1,
+                number_fetched,
+            );
 
-        for ret in arroy {
-            if relevant.iter().any(|(id, _, _)| *id == ret.0) {
-                correctly_retrieved += 1;
+            let arroy = reader
+                .nns_by_item(
+                    &rtxn,
+                    querying.0,
+                    number_fetched,
+                    None,
+                    Some(NonZeroUsize::new(OVERSAMPLING).unwrap()),
+                    None,
+                )
+                .unwrap()
+                .unwrap();
+
+            for ret in arroy {
+                if relevant.iter().any(|(id, _, _)| *id == ret.0) {
+                    correctly_retrieved += 1;
+                }
             }
         }
-    }
 
-    correctly_retrieved as f32 / (number_fetched as f32 * 100.0)
+        let recall = correctly_retrieved as f32 / (number_fetched as f32 * 100.0);
+        recalls.push(Recall(recall));
+    }
+    let time_to_search = now.elapsed();
+
+    let distance_name = ArroyDistance::name();
+    println!(
+        "{distance_name:30} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#}"
+    );
 }
 
 fn partial_sort_by<'a, D: Distance>(
@@ -239,3 +308,33 @@ impl fmt::Debug for Recall {
         write!(f, "{:.2}\x1b[0m", self.0)
     }
 }
+
+pub const HN_TOP_POSTS_PATH: &str = "assets/hn-top-posts.mat";
+pub const HN_TOP_POSTS_DIMENSIONS: usize = 1024;
+pub fn hn_top_posts() -> MatLEView<f32> {
+    MatLEView::new(
+        "Hackernews top posts",
+        HN_TOP_POSTS_PATH,
+        HN_TOP_POSTS_DIMENSIONS,
+    )
+}
+
+pub const HN_POSTS_PATH: &str = "assets/hn-posts.mat";
+pub const HN_POSTS_DIMENSIONS: usize = 512;
+pub fn hn_posts() -> MatLEView<f32> {
+    MatLEView::new("Hackernews posts", HN_POSTS_PATH, HN_POSTS_DIMENSIONS)
+}
+
+pub const DB_PEDIA_OPENAI_TEXT_EMBEDDING_3_LARGE_PATH: &str =
+    "assets/db-pedia-OpenAI-text-embedding-3-large.mat";
+pub const DB_PEDIA_OPENAI_TEXT_EMBEDDING_3_LARGE_DIMENSIONS: usize = 3072;
+// pub fn hn_posts() -> MatLEView<f32> {
+//     MatLEView::new("Hackernews posts", "assets/hn-posts.mat", 512)
+// }
+
+pub const DB_PEDIA_OPENAI_TEXT_EMBEDDING_ADA_002_PATH: &str =
+    "assets/db-pedia-OpenAI-text-embedding-3-large.mat";
+pub const DB_PEDIA_OPENAI_TEXT_EMBEDDING_ADA_002_DIMENSIONS: usize = 1536;
+// pub fn hn_posts() -> MatLEView<f32> {
+//     MatLEView::new("Hackernews posts", "assets/hn-posts.mat", 512)
+// }
