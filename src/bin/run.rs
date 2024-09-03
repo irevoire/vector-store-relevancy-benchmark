@@ -25,7 +25,7 @@ fn db_pedia_ada_002_large() -> MatLEView<f32> {
 }
 
 fn main() {
-    let take = 100_000;
+    let take = 1_000;
     for dataset in [
         &hn_posts(),
         &hn_top_post(),

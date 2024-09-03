@@ -15,8 +15,8 @@ use dockertest::{DockerTest, Image, Source, TestBodySpecification};
 use heed::{EnvOpenOptions, RwTxn};
 use memmap2::Mmap;
 use qdrant_client::qdrant::{
-    CreateCollectionBuilder, PointId, PointStruct, ScalarQuantizationBuilder, SearchParamsBuilder,
-    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+    quantization_config, CreateCollectionBuilder, PointId, PointStruct, ScalarQuantizationBuilder,
+    SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
 };
 use qdrant_client::{Payload, Qdrant};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
@@ -31,12 +31,15 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
 
     for func in &[
         bench_qdrant_distance::<Angular>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular>(),
         bench_qdrant_distance::<Euclidean>(),
+        bench_qdrant_distance::<BinaryQuantizedEuclidean>(),
         bench_qdrant_distance::<Manhattan>(),
+        bench_qdrant_distance::<BinaryQuantizedManhattan>(),
         bench_qdrant_distance::<DotProduct>(),
         // angular
         // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
         // bench_arroy_distance::<BinaryQuantizedAngular, 6>(),
         // bench_arroy_distance::<BinaryQuantizedAngular, 10>(),
         // bench_arroy_distance::<BinaryQuantizedAngular, 50>(),
@@ -44,7 +47,7 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
         bench_arroy_distance::<Angular, 1>(),
         // manhattan
         // bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
+        bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
         // bench_arroy_distance::<BinaryQuantizedManhattan, 6>(),
         // bench_arroy_distance::<BinaryQuantizedManhattan, 10>(),
         // bench_arroy_distance::<BinaryQuantizedManhattan, 50>(),
@@ -52,7 +55,7 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
         bench_arroy_distance::<Manhattan, 1>(),
         // euclidean
         // bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
         // bench_arroy_distance::<BinaryQuantizedEuclidean, 6>(),
         // bench_arroy_distance::<BinaryQuantizedEuclidean, 10>(),
         // bench_arroy_distance::<BinaryQuantizedEuclidean, 50>(),
@@ -66,23 +69,33 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
 }
 
 trait ArroyDistance: Distance {
+    const BINARY_QUANTIZED: bool;
     type RealDistance: Distance;
     const QDRANT_DISTANCE: qdrant_client::qdrant::Distance;
+    fn qdrant_quantization_config() -> quantization_config::Quantization;
 }
 
 macro_rules! arroy_distance {
     ($distance:ty => qdrant: $qdrant:ident) => {
         impl ArroyDistance for $distance {
+            const BINARY_QUANTIZED: bool = false;
             type RealDistance = $distance;
             const QDRANT_DISTANCE: qdrant_client::qdrant::Distance =
                 qdrant_client::qdrant::Distance::$qdrant;
+            fn qdrant_quantization_config() -> quantization_config::Quantization {
+                ScalarQuantizationBuilder::default().into()
+            }
         }
     };
     ($distance:ty => real: $real:ty, qdrant: $qdrant:ident) => {
         impl ArroyDistance for $distance {
+            const BINARY_QUANTIZED: bool = true;
             type RealDistance = $real;
             const QDRANT_DISTANCE: qdrant_client::qdrant::Distance =
                 qdrant_client::qdrant::Distance::$qdrant;
+            fn qdrant_quantization_config() -> quantization_config::Quantization {
+                qdrant_client::qdrant::BinaryQuantization::default().into()
+            }
         }
     };
 }
@@ -97,7 +110,7 @@ arroy_distance!(DotProduct => qdrant: Dot);
 
 fn bench_arroy_distance<D: ArroyDistance, const OVERSAMPLING: usize>(
 ) -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
-    &measure_distance::<D, D::RealDistance, OVERSAMPLING> as &dyn Fn(usize, &[(u32, &[f32])])
+    &measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING> as &dyn Fn(usize, &[(u32, &[f32])])
 }
 
 fn bench_qdrant_distance<D: ArroyDistance>() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static)
@@ -170,7 +183,7 @@ impl<T: AnyBitPattern> MatLEView<T> {
     }
 }
 
-pub fn measure_distance<
+pub fn measure_arroy_distance<
     ArroyDistance: Distance,
     PerfectDistance: Distance,
     const OVERSAMPLING: usize,
@@ -243,13 +256,14 @@ pub fn measure_distance<
     }
     let time_to_search = now.elapsed();
 
-    let distance_name = ArroyDistance::name();
+    // make the distance name smaller
+    let distance_name = ArroyDistance::name().replace("binary quantized", "bq");
     println!(
         "[arroy]  {distance_name:12} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#}"
     );
 }
 
-pub fn measure_qdrant_distance<D: ArroyDistance>(dimensions: usize, points: &[(u32, &[f32])]) {
+fn measure_qdrant_distance<D: ArroyDistance>(dimensions: usize, points: &[(u32, &[f32])]) {
     let points: Vec<_> = points
         .iter()
         .map(|(id, vector)| {
@@ -286,7 +300,7 @@ pub fn measure_qdrant_distance<D: ArroyDistance>(dimensions: usize, points: &[(u
                         dimensions as u64,
                         D::QDRANT_DISTANCE,
                     ))
-                    .quantization_config(ScalarQuantizationBuilder::default()),
+                    .quantization_config(D::qdrant_quantization_config()),
             )
             .await
             .unwrap();
@@ -333,7 +347,10 @@ pub fn measure_qdrant_distance<D: ArroyDistance>(dimensions: usize, points: &[(u
         }
         let time_to_search = now.elapsed();
 
-        let distance_name = D::QDRANT_DISTANCE.as_str_name();
+        let mut distance_name = D::QDRANT_DISTANCE.as_str_name().to_string();
+        if D::BINARY_QUANTIZED {
+            distance_name.push_str(" bq");
+        }
         println!(
             "[qdrant] {distance_name:12} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}"
         );
