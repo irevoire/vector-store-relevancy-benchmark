@@ -10,8 +10,15 @@ use arroy::{
 };
 use byte_unit::{Byte, UnitType};
 use bytemuck::{AnyBitPattern, PodCastError};
+use dockertest::waitfor::MessageSource;
+use dockertest::{DockerTest, Image, Source, TestBodySpecification};
 use heed::{EnvOpenOptions, RwTxn};
 use memmap2::Mmap;
+use qdrant_client::qdrant::{
+    CreateCollectionBuilder, PointId, PointStruct, ScalarQuantizationBuilder, SearchParamsBuilder,
+    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+};
+use qdrant_client::{Payload, Qdrant};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 const TWENTY_HUNDRED_MIB: usize = 200 * 1024 * 1024 * 1024;
@@ -23,20 +30,33 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
     println!("Recall tested is {RECALL_TESTED:?}");
 
     for func in &[
+        bench_qdrant_distance::<Angular>(),
+        bench_qdrant_distance::<Euclidean>(),
+        bench_qdrant_distance::<Manhattan>(),
+        bench_qdrant_distance::<DotProduct>(),
         // angular
-        bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 6>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 6>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 10>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 50>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 100>(),
         bench_arroy_distance::<Angular, 1>(),
         // manhattan
-        bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
-        bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
-        bench_arroy_distance::<BinaryQuantizedManhattan, 6>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 6>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 10>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 50>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 100>(),
         bench_arroy_distance::<Manhattan, 1>(),
         // euclidean
-        bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
-        bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
-        bench_arroy_distance::<BinaryQuantizedEuclidean, 6>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 6>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 10>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 50>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 100>(),
         bench_arroy_distance::<Euclidean, 1>(),
         // dot-product
         bench_arroy_distance::<DotProduct, 1>(),
@@ -47,37 +67,43 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
 
 trait ArroyDistance: Distance {
     type RealDistance: Distance;
+    const QDRANT_DISTANCE: qdrant_client::qdrant::Distance;
 }
 
 macro_rules! arroy_distance {
-    ($distance:ty) => {
+    ($distance:ty => qdrant: $qdrant:ident) => {
         impl ArroyDistance for $distance {
             type RealDistance = $distance;
+            const QDRANT_DISTANCE: qdrant_client::qdrant::Distance =
+                qdrant_client::qdrant::Distance::$qdrant;
         }
     };
-    ($distance:ty => $real:ty) => {
+    ($distance:ty => real: $real:ty, qdrant: $qdrant:ident) => {
         impl ArroyDistance for $distance {
             type RealDistance = $real;
+            const QDRANT_DISTANCE: qdrant_client::qdrant::Distance =
+                qdrant_client::qdrant::Distance::$qdrant;
         }
     };
 }
 
-arroy_distance!(BinaryQuantizedAngular => Angular);
-arroy_distance!(Angular);
-arroy_distance!(BinaryQuantizedEuclidean => Euclidean);
-arroy_distance!(Euclidean);
-arroy_distance!(BinaryQuantizedManhattan => Manhattan);
-arroy_distance!(Manhattan);
-arroy_distance!(DotProduct);
+arroy_distance!(BinaryQuantizedAngular => real: Angular, qdrant: Cosine);
+arroy_distance!(Angular => qdrant: Cosine);
+arroy_distance!(BinaryQuantizedEuclidean => real: Euclidean, qdrant: Euclid);
+arroy_distance!(Euclidean => qdrant: Euclid);
+arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
+arroy_distance!(Manhattan => qdrant: Manhattan);
+arroy_distance!(DotProduct => qdrant: Dot);
 
 fn bench_arroy_distance<D: ArroyDistance, const OVERSAMPLING: usize>(
 ) -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
     &measure_distance::<D, D::RealDistance, OVERSAMPLING> as &dyn Fn(usize, &[(u32, &[f32])])
 }
 
-// fn bench_qdrant_distance() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
-//     &measure_qdrant_distance as &dyn Fn(usize, &[(u32, &[f32])])
-// }
+fn bench_qdrant_distance<D: ArroyDistance>() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static)
+{
+    &measure_qdrant_distance::<D> as &dyn Fn(usize, &[(u32, &[f32])])
+}
 
 pub struct MatLEView<T> {
     name: &'static str,
@@ -219,8 +245,124 @@ pub fn measure_distance<
 
     let distance_name = ArroyDistance::name();
     println!(
-        "{distance_name:30} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#}"
+        "[arroy]  {distance_name:12} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#}"
     );
+}
+
+pub fn measure_qdrant_distance<D: ArroyDistance>(dimensions: usize, points: &[(u32, &[f32])]) {
+    let points: Vec<_> = points
+        .iter()
+        .map(|(id, vector)| {
+            PointStruct::new(
+                *id as u64,
+                vector.to_vec(),
+                Payload::try_from(serde_json::json!({ "id": *id })).unwrap(),
+            )
+        })
+        .collect();
+
+    let mut docker = DockerTest::new();
+    let image = Image::with_repository("qdrant/qdrant").source(Source::DockerHub);
+    let mut spec = TestBodySpecification::with_image(image);
+    spec.modify_port_map(6333, 6333);
+    spec.modify_port_map(6334, 6334);
+    docker.provide_container(spec);
+    docker.run(|ops| async move {
+        // A handle to operate on the Container.
+        let container = ops.handle("qdrant/qdrant");
+        container
+            .assert_message("Qdrant gRPC listening on 6334", MessageSource::Stdout, 10)
+            .await;
+
+        let (ip, port) = container.host_port(6334).unwrap();
+        let url = format!("http://{}:{}/", ip, port);
+        let client = Qdrant::from_url(&url).build().unwrap();
+
+        let collection_name = "hello";
+        client
+            .create_collection(
+                CreateCollectionBuilder::new(collection_name)
+                    .vectors_config(VectorParamsBuilder::new(
+                        dimensions as u64,
+                        D::QDRANT_DISTANCE,
+                    ))
+                    .quantization_config(ScalarQuantizationBuilder::default()),
+            )
+            .await
+            .unwrap();
+
+        let now = std::time::Instant::now();
+        let mut rng = StdRng::seed_from_u64(13);
+        client
+            .upsert_points_chunked(UpsertPointsBuilder::new(collection_name, points.clone()).wait(true), 1000)
+            .await
+            .unwrap();
+        let time_to_index = now.elapsed();
+
+        let mut recalls = Vec::new();
+        for number_fetched in RECALL_TESTED {
+            if number_fetched > points.len() {
+                break;
+            }
+            let mut correctly_retrieved = 0;
+            for _ in 0..100 {
+                let querying = points.choose(&mut rng).unwrap();
+
+                let relevant = partial_sort_by::<D::RealDistance>(
+                    points.iter().map(|point| (get_id_from_point(point), get_vector_from_point(point))),
+                    get_vector_from_point(querying),
+                    number_fetched,
+                );
+
+            let qdrant = client
+                .search_points(
+                    SearchPointsBuilder::new(collection_name, get_vector_from_point(querying), number_fetched as u64)
+                        .params(SearchParamsBuilder::default().exact(true)),
+                )
+                .await.unwrap();
+
+                for point in qdrant.result {
+                    if relevant.iter().any(|(id, _, _)| *id == get_id_from_id(point.id.as_ref().unwrap())) {
+                        correctly_retrieved += 1;
+                    }
+                }
+            }
+
+            let recall = correctly_retrieved as f32 / (number_fetched as f32 * 100.0);
+            recalls.push(Recall(recall));
+        }
+        let time_to_search = now.elapsed();
+
+        let distance_name = D::QDRANT_DISTANCE.as_str_name();
+        println!(
+            "[qdrant] {distance_name:12} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}"
+        );
+    });
+}
+
+fn get_id_from_id(id: &PointId) -> u32 {
+    match id.point_id_options.as_ref().unwrap() {
+        qdrant_client::qdrant::point_id::PointIdOptions::Num(n) => *n as u32,
+        qdrant_client::qdrant::point_id::PointIdOptions::Uuid(_) => todo!("uuid not supported"),
+    }
+}
+
+fn get_id_from_point(point: &PointStruct) -> u32 {
+    get_id_from_id(point.id.as_ref().unwrap())
+}
+
+fn get_vector_from_point(point: &PointStruct) -> &[f32] {
+    match point
+        .vectors
+        .as_ref()
+        .unwrap()
+        .vectors_options
+        .as_ref()
+        .unwrap()
+    {
+        qdrant_client::qdrant::vectors::VectorsOptions::Vector(vec) => vec.data.as_slice(),
+        qdrant_client::qdrant::vectors::VectorsOptions::Vectors(_) => todo!(),
+    }
 }
 
 fn partial_sort_by<'a, D: Distance>(
