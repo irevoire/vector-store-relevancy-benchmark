@@ -6,7 +6,7 @@ use std::{fmt, marker::PhantomData};
 use arroy::distances::*;
 use arroy::{
     internals::{self, Leaf, NodeCodec, UnalignedVector},
-    Database, Distance, ItemId, Writer,
+    Database, ItemId, Writer,
 };
 use byte_unit::{Byte, UnitType};
 use bytemuck::{AnyBitPattern, PodCastError};
@@ -68,16 +68,17 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
     }
 }
 
-trait ArroyDistance: Distance {
+/// A generalist distance trait that contains the informations required to configure every engine
+trait Distance: arroy::Distance {
     const BINARY_QUANTIZED: bool;
-    type RealDistance: Distance;
+    type RealDistance: arroy::Distance;
     const QDRANT_DISTANCE: qdrant_client::qdrant::Distance;
     fn qdrant_quantization_config() -> quantization_config::Quantization;
 }
 
 macro_rules! arroy_distance {
     ($distance:ty => qdrant: $qdrant:ident) => {
-        impl ArroyDistance for $distance {
+        impl Distance for $distance {
             const BINARY_QUANTIZED: bool = false;
             type RealDistance = $distance;
             const QDRANT_DISTANCE: qdrant_client::qdrant::Distance =
@@ -88,7 +89,7 @@ macro_rules! arroy_distance {
         }
     };
     ($distance:ty => real: $real:ty, qdrant: $qdrant:ident) => {
-        impl ArroyDistance for $distance {
+        impl Distance for $distance {
             const BINARY_QUANTIZED: bool = true;
             type RealDistance = $real;
             const QDRANT_DISTANCE: qdrant_client::qdrant::Distance =
@@ -108,13 +109,12 @@ arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
 arroy_distance!(Manhattan => qdrant: Manhattan);
 arroy_distance!(DotProduct => qdrant: Dot);
 
-fn bench_arroy_distance<D: ArroyDistance, const OVERSAMPLING: usize>(
+fn bench_arroy_distance<D: Distance, const OVERSAMPLING: usize>(
 ) -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
     &measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING> as &dyn Fn(usize, &[(u32, &[f32])])
 }
 
-fn bench_qdrant_distance<D: ArroyDistance>() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static)
-{
+fn bench_qdrant_distance<D: Distance>() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
     &measure_qdrant_distance::<D> as &dyn Fn(usize, &[(u32, &[f32])])
 }
 
@@ -184,8 +184,8 @@ impl<T: AnyBitPattern> MatLEView<T> {
 }
 
 pub fn measure_arroy_distance<
-    ArroyDistance: Distance,
-    PerfectDistance: Distance,
+    ArroyDistance: arroy::Distance,
+    PerfectDistance: arroy::Distance,
     const OVERSAMPLING: usize,
 >(
     dimensions: usize,
@@ -263,7 +263,7 @@ pub fn measure_arroy_distance<
     );
 }
 
-fn measure_qdrant_distance<D: ArroyDistance>(dimensions: usize, points: &[(u32, &[f32])]) {
+fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &[f32])]) {
     let points: Vec<_> = points
         .iter()
         .map(|(id, vector)| {
@@ -382,7 +382,7 @@ fn get_vector_from_point(point: &PointStruct) -> &[f32] {
     }
 }
 
-fn partial_sort_by<'a, D: Distance>(
+fn partial_sort_by<'a, D: arroy::Distance>(
     mut vectors: impl Iterator<Item = (ItemId, &'a [f32])>,
     sort_by: &[f32],
     elements: usize,
@@ -415,7 +415,7 @@ fn partial_sort_by<'a, D: Distance>(
     ret
 }
 
-fn distance<D: Distance>(left: &[f32], right: &[f32]) -> f32 {
+fn distance<D: arroy::Distance>(left: &[f32], right: &[f32]) -> f32 {
     let left = UnalignedVector::from_slice(left);
     let left = Leaf {
         header: D::new_header(&left),
@@ -430,7 +430,7 @@ fn distance<D: Distance>(left: &[f32], right: &[f32]) -> f32 {
     D::built_distance(&left, &right)
 }
 
-fn load_into_arroy<D: Distance>(
+fn load_into_arroy<D: arroy::Distance>(
     rng: &mut StdRng,
     wtxn: &mut RwTxn,
     database: Database<D>,
