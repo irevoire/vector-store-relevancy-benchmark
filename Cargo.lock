@@ -2661,6 +2661,7 @@ dependencies = [
  "byte-unit",
  "bytemuck",
  "dockertest",
+ "futures-util",
  "heed",
  "indicatif",
  "memmap2",
