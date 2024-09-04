@@ -34,6 +34,6 @@ async fn main() {
     }
 
     for task in tasks {
-        task.await.unwrap();
+        let _ = task.await;
     }
 }
