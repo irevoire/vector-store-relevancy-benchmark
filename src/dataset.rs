@@ -26,7 +26,7 @@ impl<T: AnyBitPattern> MatLEView<T> {
 
     pub fn header(&self) {
         println!(
-            "{} - {} vectors of {} dimensions",
+            "{} - {} vectors of \x1b[1m{}\x1b[0m dimensions",
             self.name,
             self.len(),
             self.dimensions

@@ -79,7 +79,7 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
             let qdrant = client
                 .search_points(
                     SearchPointsBuilder::new(collection_name, get_vector_from_point(querying), number_fetched as u64)
-                        .params(SearchParamsBuilder::default().exact(true)),
+                        .params(SearchParamsBuilder::default().exact(false)),
                 )
                 .await.unwrap();
 

@@ -5,6 +5,7 @@ mod qdrant;
 pub use dataset::*;
 
 use std::fmt;
+use std::fmt::Write;
 
 use arroy::distances::*;
 use arroy::{
@@ -19,43 +20,45 @@ use crate::qdrant::measure_qdrant_distance;
 pub const RECALL_TESTED: [usize; 6] = [1, 10, 20, 50, 100, 500];
 
 pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
-    println!("{} vectors are used for this measure", vectors.len());
-    println!("Recall tested is {RECALL_TESTED:?}");
+    println!(
+        "\x1b[1m{}\x1b[0m vectors are used for this measure",
+        vectors.len()
+    );
+    let mut recall_tested = String::new();
+    RECALL_TESTED
+        .iter()
+        .for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
+    let recall_tested = recall_tested.trim_end_matches(", ");
+    println!("Recall tested is:         [{recall_tested}]");
 
     for func in &[
-        bench_qdrant_distance::<Angular>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular>(),
-        bench_qdrant_distance::<Euclidean>(),
-        bench_qdrant_distance::<BinaryQuantizedEuclidean>(),
-        bench_qdrant_distance::<Manhattan>(),
-        bench_qdrant_distance::<BinaryQuantizedManhattan>(),
-        bench_qdrant_distance::<DotProduct>(),
         // angular
+        // bench_qdrant_distance::<Angular>(),
+        // bench_arroy_distance::<Angular, 1>(),
+        // bench_qdrant_distance::<BinaryQuantizedAngular>(),
         // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 6>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 10>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 50>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 100>(),
-        bench_arroy_distance::<Angular, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
         // manhattan
+        // bench_qdrant_distance::<Manhattan>(),
+        // bench_arroy_distance::<Manhattan, 1>(),
+        // bench_qdrant_distance::<BinaryQuantizedManhattan>(),
         // bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
-        bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 6>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 10>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 50>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 100>(),
-        bench_arroy_distance::<Manhattan, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
         // euclidean
+        // bench_qdrant_distance::<Euclidean>(),
+        // bench_arroy_distance::<Euclidean, 1>(),
+        // bench_qdrant_distance::<BinaryQuantizedEuclidean>(),
         // bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
-        bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 6>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 10>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 50>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 100>(),
-        bench_arroy_distance::<Euclidean, 1>(),
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
+        bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
         // dot-product
-        bench_arroy_distance::<DotProduct, 1>(),
+        // bench_qdrant_distance::<DotProduct>(),
+        // bench_arroy_distance::<DotProduct, 1>(),
     ] {
         (func)(dimensions, vectors);
     }

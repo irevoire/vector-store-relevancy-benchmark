@@ -9,7 +9,7 @@ use heed::{EnvOpenOptions, RwTxn};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use crate::{partial_sort_by, Recall, RECALL_TESTED};
-const TWENTY_HUNDRED_MIB: usize = 200 * 1024 * 1024 * 1024;
+const TWENTY_HUNDRED_MIB: usize = 2000 * 1024 * 1024 * 1024;
 
 pub fn measure_arroy_distance<
     ArroyDistance: arroy::Distance,
