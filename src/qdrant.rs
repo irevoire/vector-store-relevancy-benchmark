@@ -1,4 +1,6 @@
-use dockertest::{waitfor::MessageSource, DockerTest, Image, Source, TestBodySpecification};
+use std::{net::Ipv4Addr, str::FromStr};
+
+use byte_unit::{Byte, UnitType};
 use qdrant_client::{
     qdrant::{
         CreateCollectionBuilder, PointId, PointStruct, SearchParamsBuilder, SearchPointsBuilder,
@@ -23,24 +25,15 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
         })
         .collect();
 
-    let mut docker = DockerTest::new();
-    let image = Image::with_repository("qdrant/qdrant").source(Source::DockerHub);
-    let mut spec = TestBodySpecification::with_image(image);
-    spec.modify_port_map(6333, 6333);
-    spec.modify_port_map(6334, 6334);
-    docker.provide_container(spec);
-    docker.run(|ops| async move {
-        // A handle to operate on the Container.
-        let container = ops.handle("qdrant/qdrant");
-        container
-            .assert_message("Qdrant gRPC listening on 6334", MessageSource::Stdout, 10)
-            .await;
-
-        let (ip, port) = container.host_port(6334).unwrap();
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let ip = Ipv4Addr::from_str("127.0.0.1").unwrap();
+        let port = 6334;
         let url = format!("http://{}:{}/", ip, port);
         let client = Qdrant::from_url(&url).build().unwrap();
-
         let collection_name = "hello";
+
+        let _ = client.delete_collection(collection_name).await;
+
         client
             .create_collection(
                 CreateCollectionBuilder::new(collection_name)
@@ -56,9 +49,20 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
         let now = std::time::Instant::now();
         let mut rng = StdRng::seed_from_u64(13);
         client
-            .upsert_points_chunked(UpsertPointsBuilder::new(collection_name, points.clone()).wait(true), 1000)
+            .upsert_points_chunked(
+                UpsertPointsBuilder::new(collection_name, points.clone()).wait(true),
+                1000,
+            )
             .await
             .unwrap();
+
+        let mut database_size = 0u64;
+        let collection_path = format!("storage/collections/{collection_name}");
+        for result in walkdir::WalkDir::new(collection_path) {
+            let entry = result.unwrap();
+            database_size += entry.metadata().unwrap().len();
+        }
+        let database_size = Byte::from_u64(database_size).get_appropriate_unit(UnitType::Binary);
         let time_to_index = now.elapsed();
 
         let mut recalls = Vec::new();
@@ -71,20 +75,30 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
                 let querying = points.choose(&mut rng).unwrap();
 
                 let relevant = partial_sort_by::<D::RealDistance>(
-                    points.iter().map(|point| (get_id_from_point(point), get_vector_from_point(point))),
+                    points
+                        .iter()
+                        .map(|point| (get_id_from_point(point), get_vector_from_point(point))),
                     get_vector_from_point(querying),
                     number_fetched,
                 );
 
-            let qdrant = client
-                .search_points(
-                    SearchPointsBuilder::new(collection_name, get_vector_from_point(querying), number_fetched as u64)
+                let qdrant = client
+                    .search_points(
+                        SearchPointsBuilder::new(
+                            collection_name,
+                            get_vector_from_point(querying),
+                            number_fetched as u64,
+                        )
                         .params(SearchParamsBuilder::default().exact(false)),
-                )
-                .await.unwrap();
+                    )
+                    .await
+                    .unwrap();
 
                 for point in qdrant.result {
-                    if relevant.iter().any(|(id, _, _)| *id == get_id_from_id(point.id.as_ref().unwrap())) {
+                    if relevant
+                        .iter()
+                        .any(|(id, _, _)| *id == get_id_from_id(point.id.as_ref().unwrap()))
+                    {
                         correctly_retrieved += 1;
                     }
                 }
@@ -100,7 +114,7 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
             distance_name.push_str(" bq");
         }
         println!(
-            "[qdrant] {distance_name:12} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}"
+            "[qdrant] {distance_name:12} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
         );
     });
 }
