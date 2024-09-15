@@ -6,8 +6,7 @@
 
 Download the datasets you want to use:
 ```bash
-cargo run --release --bin download-db-pedia-OpenAI-text-embedding-3-large 
-cargo run --release --bin download-hn 
+./download.sh
 ```
 
 It's going to take a long time.

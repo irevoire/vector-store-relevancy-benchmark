@@ -1,5 +1,6 @@
 use std::{fs::File, marker::PhantomData, mem};
 
+use anyhow::Context;
 use bytemuck::{AnyBitPattern, PodCastError};
 use memmap2::Mmap;
 
@@ -12,7 +13,9 @@ pub struct MatLEView<T> {
 
 impl<T: AnyBitPattern> MatLEView<T> {
     pub fn new(name: &'static str, path: &str, dimensions: usize) -> MatLEView<T> {
-        let file = File::open(path).unwrap();
+        let file = File::open(path)
+            .with_context(|| format!("while opening {path}"))
+            .unwrap();
         let mmap = unsafe { Mmap::map(&file).unwrap() };
 
         assert!((mmap.len() / mem::size_of::<T>()) % dimensions == 0);

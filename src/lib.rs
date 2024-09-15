@@ -105,13 +105,12 @@ arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
 arroy_distance!(Manhattan => qdrant: Manhattan);
 arroy_distance!(DotProduct => qdrant: Dot);
 
-fn bench_arroy_distance<D: Distance, const OVERSAMPLING: usize>(
-) -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
-    &measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING> as &dyn Fn(usize, &[(u32, &[f32])])
+fn bench_arroy_distance<D: Distance, const OVERSAMPLING: usize>() -> fn(usize, &[(u32, &[f32])]) {
+    measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING>
 }
 
-fn bench_qdrant_distance<D: Distance>() -> &'static (dyn Fn(usize, &[(u32, &[f32])]) + 'static) {
-    &measure_qdrant_distance::<D> as &dyn Fn(usize, &[(u32, &[f32])])
+fn bench_qdrant_distance<D: Distance>() -> fn(usize, &[(u32, &[f32])]) {
+    measure_qdrant_distance::<D>
 }
 
 fn partial_sort_by<'a, D: arroy::Distance>(
