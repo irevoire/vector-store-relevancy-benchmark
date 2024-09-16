@@ -119,13 +119,13 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
 
         let mut distance_name = D::QDRANT_DISTANCE.as_str_name().to_string();
         if D::BINARY_QUANTIZED {
-            distance_name.push_str(" bq");
+            distance_name.insert_str(0, "bq ");
         }
         if EXACT {
             distance_name.push_str(" exact");
         }
         println!(
-            "[qdrant] {distance_name:12} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
+            "[qdrant] {distance_name:16} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
         );
     });
 }

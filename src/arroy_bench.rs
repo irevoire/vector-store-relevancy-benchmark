@@ -87,7 +87,7 @@ pub fn measure_arroy_distance<
     // make the distance name smaller
     let distance_name = ArroyDistance::name().replace("binary quantized", "bq");
     println!(
-        "[arroy]  {distance_name:12} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
+        "[arroy]  {distance_name:16} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
     );
 }
 

@@ -29,14 +29,15 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
         .iter()
         .for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
     let recall_tested = recall_tested.trim_end_matches(", ");
-    println!("Recall tested is:         [{recall_tested}]");
+    println!("Recall tested is:             [{recall_tested}]");
 
     for func in &[
         // angular
         bench_qdrant_distance::<Angular, false>(),
         bench_qdrant_distance::<Angular, true>(),
-        bench_arroy_distance::<Angular, 1>(),
+        // bench_arroy_distance::<Angular, 1>(),
         bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
         // manhattan
