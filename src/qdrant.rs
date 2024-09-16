@@ -13,7 +13,10 @@ use rand::{rngs::StdRng, SeedableRng};
 
 use crate::{partial_sort_by, Distance, Recall, RECALL_TESTED};
 
-pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &[f32])]) {
+pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
+    dimensions: usize,
+    points: &[(u32, &[f32])],
+) {
     let points: Vec<_> = points
         .iter()
         .map(|(id, vector)| {
@@ -89,7 +92,7 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
                             get_vector_from_point(querying),
                             number_fetched as u64,
                         )
-                        .params(SearchParamsBuilder::default().exact(false)),
+                        .params(SearchParamsBuilder::default().exact(EXACT)),
                     )
                     .await
                     .unwrap();
@@ -112,6 +115,9 @@ pub fn measure_qdrant_distance<D: Distance>(dimensions: usize, points: &[(u32, &
         let mut distance_name = D::QDRANT_DISTANCE.as_str_name().to_string();
         if D::BINARY_QUANTIZED {
             distance_name.push_str(" bq");
+        }
+        if EXACT {
+            distance_name.push_str(" exact");
         }
         println!(
             "[qdrant] {distance_name:12} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"

@@ -33,25 +33,26 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
 
     for func in &[
         // angular
-        bench_qdrant_distance::<Angular>(),
+        bench_qdrant_distance::<Angular, false>(),
+        bench_qdrant_distance::<Angular, true>(),
         bench_arroy_distance::<Angular, 1>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
         // manhattan
-        bench_qdrant_distance::<Manhattan>(),
+        bench_qdrant_distance::<Manhattan, false>(),
         bench_arroy_distance::<Manhattan, 1>(),
-        bench_qdrant_distance::<BinaryQuantizedManhattan>(),
+        bench_qdrant_distance::<BinaryQuantizedManhattan, false>(),
         bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
         bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
         // euclidean
-        bench_qdrant_distance::<Euclidean>(),
+        bench_qdrant_distance::<Euclidean, false>(),
         bench_arroy_distance::<Euclidean, 1>(),
-        bench_qdrant_distance::<BinaryQuantizedEuclidean>(),
+        bench_qdrant_distance::<BinaryQuantizedEuclidean, false>(),
         bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
         bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
         // dot-product
-        bench_qdrant_distance::<DotProduct>(),
+        bench_qdrant_distance::<DotProduct, false>(),
         bench_arroy_distance::<DotProduct, 1>(),
     ] {
         (func)(dimensions, vectors);
@@ -103,8 +104,8 @@ fn bench_arroy_distance<D: Distance, const OVERSAMPLING: usize>() -> fn(usize, &
     measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING>
 }
 
-fn bench_qdrant_distance<D: Distance>() -> fn(usize, &[(u32, &[f32])]) {
-    measure_qdrant_distance::<D>
+fn bench_qdrant_distance<D: Distance, const EXACT: bool>() -> fn(usize, &[(u32, &[f32])]) {
+    measure_qdrant_distance::<D, EXACT>
 }
 
 fn partial_sort_by<'a, D: arroy::Distance>(
