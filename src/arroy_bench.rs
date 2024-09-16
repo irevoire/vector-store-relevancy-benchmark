@@ -8,7 +8,7 @@ use byte_unit::{Byte, UnitType};
 use heed::{EnvOpenOptions, RwTxn};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use crate::{partial_sort_by, Recall, RECALL_TESTED};
+use crate::{partial_sort_by, Recall, RECALL_TESTED, RNG_SEED};
 const TWENTY_HUNDRED_MIB: usize = 2000 * 1024 * 1024 * 1024;
 
 pub fn measure_arroy_distance<
@@ -28,13 +28,14 @@ pub fn measure_arroy_distance<
     .unwrap();
 
     let now = std::time::Instant::now();
-    let mut rng = StdRng::seed_from_u64(13);
+    let mut arroy_seed = StdRng::seed_from_u64(13);
+    let mut rng = StdRng::seed_from_u64(RNG_SEED);
     let mut wtxn = env.write_txn().unwrap();
 
     let database = env
         .create_database::<internals::KeyCodec, NodeCodec<ArroyDistance>>(&mut wtxn, None)
         .unwrap();
-    load_into_arroy(&mut rng, &mut wtxn, database, dimensions, points);
+    load_into_arroy(&mut arroy_seed, &mut wtxn, database, dimensions, points);
     wtxn.commit().unwrap();
     let database_size =
         Byte::from_u64(env.non_free_pages_size().unwrap()).get_appropriate_unit(UnitType::Binary);

@@ -18,6 +18,7 @@ use qdrant_client::qdrant::{quantization_config, ScalarQuantizationBuilder};
 use crate::qdrant::measure_qdrant_distance;
 
 pub const RECALL_TESTED: [usize; 6] = [1, 10, 20, 50, 100, 500];
+pub const RNG_SEED: u64 = 38;
 
 pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
     println!(

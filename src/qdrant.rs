@@ -11,7 +11,7 @@ use qdrant_client::{
 use rand::prelude::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use crate::{partial_sort_by, Distance, Recall, RECALL_TESTED};
+use crate::{partial_sort_by, Distance, Recall, RECALL_TESTED, RNG_SEED};
 
 pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
     dimensions: usize,
@@ -52,7 +52,7 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         let now = std::time::Instant::now();
-        let mut rng = StdRng::seed_from_u64(13);
+        let mut rng = StdRng::seed_from_u64(RNG_SEED);
         client
             .upsert_points_chunked(
                 UpsertPointsBuilder::new(collection_name, points.clone()).wait(true),
