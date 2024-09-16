@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, str::FromStr};
+use std::{net::Ipv4Addr, str::FromStr, time::Duration};
 
 use byte_unit::{Byte, UnitType};
 use qdrant_client::{
@@ -44,10 +44,12 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
                         dimensions as u64,
                         D::QDRANT_DISTANCE,
                     ))
-                    .quantization_config(D::qdrant_quantization_config()),
+                    .quantization_config(D::qdrant_quantization_config()
+                    ),
             )
             .await
             .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         let now = std::time::Instant::now();
         let mut rng = StdRng::seed_from_u64(13);
@@ -62,8 +64,11 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
         let mut database_size = 0u64;
         let collection_path = format!("storage/collections/{collection_name}");
         for result in walkdir::WalkDir::new(collection_path) {
-            let entry = result.unwrap();
-            database_size += entry.metadata().unwrap().len();
+            let entry = match result {
+                Ok(entry) => entry,
+                _ => continue,
+            };
+            database_size += entry.metadata().map_or(0, |metadata| metadata.len());
         }
         let database_size = Byte::from_u64(database_size).get_appropriate_unit(UnitType::Binary);
         let time_to_index = now.elapsed();
