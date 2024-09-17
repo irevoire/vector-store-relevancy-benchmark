@@ -33,14 +33,29 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
     println!("Recall tested is:             [{recall_tested}]");
 
     for func in &[
-        // angular
-        bench_qdrant_distance::<Angular, false>(),
-        bench_qdrant_distance::<Angular, true>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
-        bench_arroy_distance::<Angular, 1>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
+        // qdrant
+        bench_qdrant_distance::<Angular, false, 100>(),
+        bench_qdrant_distance::<Angular, true, 100>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false, 100>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true, 100>(),
+        bench_qdrant_distance::<Angular, false, 50>(),
+        bench_qdrant_distance::<Angular, true, 50>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false, 50>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true, 50>(),
+        bench_qdrant_distance::<Angular, false, 2>(),
+        bench_qdrant_distance::<Angular, true, 2>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false, 2>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true, 2>(),
+        // arroy
+        bench_arroy_distance::<Angular, 1, 100>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 1, 100>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3, 100>(),
+        bench_arroy_distance::<Angular, 1, 50>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 1, 50>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3, 50>(),
+        bench_arroy_distance::<Angular, 1, 2>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 1, 2>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3, 2>(),
         // bench_arroy_distance::<Angular, 1>(),
         // bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
         // bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
@@ -107,12 +122,17 @@ arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
 arroy_distance!(Manhattan => qdrant: Manhattan);
 arroy_distance!(DotProduct => qdrant: Dot);
 
-fn bench_arroy_distance<D: Distance, const OVERSAMPLING: usize>() -> fn(usize, &[(u32, &[f32])]) {
-    measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING>
+fn bench_arroy_distance<
+    D: Distance,
+    const OVERSAMPLING: usize,
+    const FILTER_SUBSET_PERCENT: usize,
+>() -> fn(usize, &[(u32, &[f32])]) {
+    measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING, FILTER_SUBSET_PERCENT>
 }
 
-fn bench_qdrant_distance<D: Distance, const EXACT: bool>() -> fn(usize, &[(u32, &[f32])]) {
-    measure_qdrant_distance::<D, EXACT>
+fn bench_qdrant_distance<D: Distance, const EXACT: bool, const FILTER_SUBSET_PERCENT: usize>(
+) -> fn(usize, &[(u32, &[f32])]) {
+    measure_qdrant_distance::<D, EXACT, FILTER_SUBSET_PERCENT>
 }
 
 fn partial_sort_by<'a, D: arroy::Distance>(

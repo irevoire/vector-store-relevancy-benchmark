@@ -3,8 +3,8 @@ use std::{net::Ipv4Addr, str::FromStr, time::Duration};
 use byte_unit::{Byte, UnitType};
 use qdrant_client::{
     qdrant::{
-        CreateCollectionBuilder, PointId, PointStruct, SearchParamsBuilder, SearchPointsBuilder,
-        UpsertPointsBuilder, VectorParamsBuilder,
+        point_id::PointIdOptions, Condition, CreateCollectionBuilder, Filter, PointId, PointStruct,
+        Range, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
     },
     Payload, Qdrant,
 };
@@ -13,10 +13,22 @@ use rand::{rngs::StdRng, SeedableRng};
 
 use crate::{partial_sort_by, Distance, Recall, RECALL_TESTED, RNG_SEED};
 
-pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
+pub fn measure_qdrant_distance<
+    D: Distance,
+    const EXACT: bool,
+    const FILTER_SUBSET_PERCENT: usize,
+>(
     dimensions: usize,
     points: &[(u32, &[f32])],
 ) {
+    let filtered_percentage = FILTER_SUBSET_PERCENT as f32;
+    let candidates_range = if FILTER_SUBSET_PERCENT >= 100 {
+        None
+    } else {
+        let count = (points.len() as f32 * (filtered_percentage / 100.0)) as usize;
+        Some([points[0].0, points[count - 1].0])
+    };
+
     let points: Vec<_> = points
         .iter()
         .map(|(id, vector)| {
@@ -32,7 +44,10 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
         let ip = Ipv4Addr::from_str("127.0.0.1").unwrap();
         let port = 6334;
         let url = format!("http://{}:{}/", ip, port);
-        let client = Qdrant::from_url(&url).timeout(Duration::from_secs(1800)).build().unwrap();
+        let client = Qdrant::from_url(&url)
+            .timeout(Duration::from_secs(1800))
+            .build()
+            .unwrap();
         let collection_name = "hello";
 
         let _ = client.delete_collection(collection_name).await;
@@ -44,8 +59,7 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
                         dimensions as u64,
                         D::QDRANT_DISTANCE,
                     ))
-                    .quantization_config(D::qdrant_quantization_config()
-                    ),
+                    .quantization_config(D::qdrant_quantization_config()),
             )
             .await
             .unwrap();
@@ -78,27 +92,51 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
             if number_fetched > points.len() {
                 break;
             }
-            let mut correctly_retrieved = 0;
+            let mut correctly_retrieved = Some(0);
             for _ in 0..100 {
                 let querying = points.choose(&mut rng).unwrap();
 
                 let relevant = partial_sort_by::<D::RealDistance>(
                     points
                         .iter()
+                        .filter(|point| {
+                            // Only evaluate the candidate points
+                            let get_id = |ps: &PointStruct| -> u64 {
+                                match ps.id.as_ref().unwrap().point_id_options.as_ref().unwrap() {
+                                    PointIdOptions::Num(id) => *id,
+                                    _ => panic!("what!"),
+                                }
+                            };
+                            match candidates_range {
+                                Some([l, h]) => (l..=h).contains(&(get_id(point) as u32)),
+                                None => true,
+                            }
+                        })
                         .map(|point| (get_id_from_point(point), get_vector_from_point(point))),
                     get_vector_from_point(querying),
                     number_fetched,
                 );
 
+                let search_builder = SearchPointsBuilder::new(
+                    collection_name,
+                    get_vector_from_point(querying),
+                    number_fetched as u64,
+                )
+                .params(SearchParamsBuilder::default().exact(EXACT));
+
                 let qdrant = client
-                    .search_points(
-                        SearchPointsBuilder::new(
-                            collection_name,
-                            get_vector_from_point(querying),
-                            number_fetched as u64,
-                        )
-                        .params(SearchParamsBuilder::default().exact(EXACT)),
-                    )
+                    .search_points(match candidates_range {
+                        Some([l, h]) => {
+                            let range = Range {
+                                gte: Some(l as f64),
+                                lte: Some(h as f64),
+                                ..Default::default()
+                            };
+                            let condition = Condition::range("id", range);
+                            search_builder.filter(Filter::must(Some(condition)))
+                        }
+                        None => search_builder,
+                    })
                     .await
                     .unwrap();
 
@@ -107,12 +145,16 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
                         .iter()
                         .any(|(id, _, _)| *id == get_id_from_id(point.id.as_ref().unwrap()))
                     {
-                        correctly_retrieved += 1;
+                        if let Some(correctly_retrieved) = &mut correctly_retrieved {
+                            *correctly_retrieved += 1;
+                        }
+                    } else if let Some([l, h]) = candidates_range {
+                        if !(l..=h).contains(&get_id_from_id(point.id.as_ref().unwrap())) {}
                     }
                 }
             }
 
-            let recall = correctly_retrieved as f32 / (number_fetched as f32 * 100.0);
+            let recall = correctly_retrieved.unwrap_or(-1) as f32 / (number_fetched as f32 * 100.0);
             recalls.push(Recall(recall));
         }
         let time_to_search = now.elapsed();
@@ -125,7 +167,11 @@ pub fn measure_qdrant_distance<D: Distance, const EXACT: bool>(
             distance_name.push_str(" exact");
         }
         println!(
-            "[qdrant] {distance_name:16} x1: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
+            "[qdrant] {distance_name:16} x1: {recalls:?}, \
+            indexed for: {time_to_index:02.2?}, \
+            searched for: {time_to_search:02.2?}, \
+            size on disk: {database_size:#.2} \
+            searched in {filtered_percentage:#.2}%"
         );
     });
 }
