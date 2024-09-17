@@ -15,6 +15,7 @@ pub fn measure_arroy_distance<
     ArroyDistance: arroy::Distance,
     PerfectDistance: arroy::Distance,
     const OVERSAMPLING: usize,
+    const MAX_DESCENDANTS_SIZE: usize,
 >(
     dimensions: usize,
     points: &[(u32, &[f32])],
@@ -35,7 +36,14 @@ pub fn measure_arroy_distance<
     let database = env
         .create_database::<internals::KeyCodec, NodeCodec<ArroyDistance>>(&mut wtxn, None)
         .unwrap();
-    load_into_arroy(&mut arroy_seed, &mut wtxn, database, dimensions, points);
+    load_into_arroy(
+        &mut arroy_seed,
+        &mut wtxn,
+        database,
+        dimensions,
+        NonZeroUsize::new(MAX_DESCENDANTS_SIZE).map(|m| m.get()),
+        points,
+    );
     wtxn.commit().unwrap();
     let database_size =
         Byte::from_u64(env.non_free_pages_size().unwrap()).get_appropriate_unit(UnitType::Binary);
@@ -85,10 +93,21 @@ pub fn measure_arroy_distance<
     }
     let time_to_search = now.elapsed();
 
+    let max_descendants_size = if MAX_DESCENDANTS_SIZE == 0 {
+        dimensions
+    } else {
+        MAX_DESCENDANTS_SIZE
+    };
+    let ntrees = reader.n_trees();
     // make the distance name smaller
     let distance_name = ArroyDistance::name().replace("binary quantized", "bq");
     println!(
-        "[arroy]  {distance_name:16} x{OVERSAMPLING}: {recalls:?}, indexed for: {time_to_index:02.2?}, searched for: {time_to_search:02.2?}, size on disk: {database_size:#.2}"
+        "[arroy]  {distance_name:16} x{OVERSAMPLING}: {recalls:?}, \
+        max desc size: {max_descendants_size}, \
+        indexed for: {time_to_index:02.2?}, \
+        searched for: {time_to_search:02.2?}, \
+        size on disk: {database_size:#.2}, \
+        number of trees: {ntrees}"
     );
 }
 
@@ -97,9 +116,10 @@ fn load_into_arroy<D: arroy::Distance>(
     wtxn: &mut RwTxn,
     database: Database<D>,
     dimensions: usize,
+    max_descendants_size: Option<usize>,
     points: &[(ItemId, &[f32])],
 ) {
-    let writer = Writer::<D>::new(database, 0, dimensions);
+    let writer = Writer::<D>::new(database, 0, dimensions, max_descendants_size);
     for (i, vector) in points.iter() {
         assert_eq!(vector.len(), dimensions);
         writer.add_item(wtxn, *i, vector).unwrap();

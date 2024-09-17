@@ -34,13 +34,19 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
 
     for func in &[
         // angular
-        bench_qdrant_distance::<Angular, false>(),
-        bench_qdrant_distance::<Angular, true>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
-        bench_arroy_distance::<Angular, 1>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
+        // bench_qdrant_distance::<Angular, false>(),
+        // bench_qdrant_distance::<Angular, true>(),
+        // bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
+        // bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
+        bench_arroy_distance::<Angular, 1, 0>(),
+        bench_arroy_distance::<Angular, 1, 1536>(),
+        bench_arroy_distance::<Angular, 1, 3072>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 1, 0>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 1, 1536>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 1, 3072>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3, 0>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3, 1536>(),
+        bench_arroy_distance::<BinaryQuantizedAngular, 3, 3072>(),
         // bench_arroy_distance::<Angular, 1>(),
         // bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
         // bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
@@ -107,8 +113,12 @@ arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
 arroy_distance!(Manhattan => qdrant: Manhattan);
 arroy_distance!(DotProduct => qdrant: Dot);
 
-fn bench_arroy_distance<D: Distance, const OVERSAMPLING: usize>() -> fn(usize, &[(u32, &[f32])]) {
-    measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING>
+fn bench_arroy_distance<
+    D: Distance,
+    const OVERSAMPLING: usize,
+    const MAX_DESCENDANTS_SIZE: usize,
+>() -> fn(usize, &[(u32, &[f32])]) {
+    measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING, MAX_DESCENDANTS_SIZE>
 }
 
 fn bench_qdrant_distance<D: Distance, const EXACT: bool>() -> fn(usize, &[(u32, &[f32])]) {

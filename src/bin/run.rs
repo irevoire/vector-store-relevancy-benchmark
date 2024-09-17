@@ -40,8 +40,8 @@ fn main() {
         &hn_posts(),
         &hn_top_post(),
         &db_pedia_3_large_reduced_to_1536(),
-        &db_pedia_3_large(),
-        &db_pedia_ada_002_large(),
+        // &db_pedia_3_large(),
+        // &db_pedia_ada_002_large(),
     ] {
         let vectors: Vec<(u32, &[f32])> = dataset
             .iter()
