@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, time::Duration};
 
 use arroy::{
     internals::{self, NodeCodec},
@@ -61,7 +61,7 @@ pub fn measure_arroy_distance<
         Byte::from_u64(env.non_free_pages_size().unwrap()).get_appropriate_unit(UnitType::Binary);
 
     let time_to_index = now.elapsed();
-    let now = std::time::Instant::now();
+    let mut total_duration = Duration::default();
 
     let mut recalls = Vec::new();
     for number_fetched in RECALL_TESTED {
@@ -70,7 +70,7 @@ pub fn measure_arroy_distance<
         }
         let queries: Vec<_> = (0..100).map(|_| points.choose(&mut rng).unwrap()).collect();
 
-        let correctly_retrieved = queries
+        let (correctly_retrieved, duration) = queries
             .into_par_iter()
             .map(|querying| {
                 let rtxn = env.read_txn().unwrap();
@@ -88,6 +88,7 @@ pub fn measure_arroy_distance<
                     number_fetched,
                 );
 
+                let now = std::time::Instant::now();
                 let arroy = reader
                     .nns_by_item(
                         &rtxn,
@@ -99,6 +100,7 @@ pub fn measure_arroy_distance<
                     )
                     .unwrap()
                     .unwrap();
+                let elapsed = now.elapsed();
 
                 let mut correctly_retrieved = Some(0);
                 for ret in arroy {
@@ -114,14 +116,23 @@ pub fn measure_arroy_distance<
                     }
                 }
 
-                correctly_retrieved
+                (correctly_retrieved, elapsed)
             })
-            .reduce(|| Some(0), |a, b| a.zip(b).map(|(a, b)| a + b));
+            .reduce(
+                || (Some(0), Duration::default()),
+                |(aanswer, aduration), (banswer, bduration)| {
+                    (
+                        aanswer.zip(banswer).map(|(a, b)| a + b),
+                        aduration + bduration,
+                    )
+                },
+            );
 
+        total_duration += duration;
         let recall = correctly_retrieved.unwrap_or(-1) as f32 / (number_fetched as f32 * 100.0);
         recalls.push(Recall(recall));
     }
-    let time_to_search = now.elapsed();
+    let time_to_search = total_duration;
 
     // make the distance name smaller
     let distance_name = ArroyDistance::name().replace("binary quantized", "bq");
