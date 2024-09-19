@@ -63,73 +63,64 @@ pub fn measure_arroy_distance<
     let time_to_index = now.elapsed();
     let now = std::time::Instant::now();
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1) // run it single threaded for now
-        .build()
-        .unwrap();
-
     let mut recalls = Vec::new();
+    for number_fetched in RECALL_TESTED {
+        if number_fetched > points.len() {
+            break;
+        }
+        let queries: Vec<_> = (0..100).map(|_| points.choose(&mut rng).unwrap()).collect();
 
-    pool.install(|| {
-        for number_fetched in RECALL_TESTED {
-            if number_fetched > points.len() {
-                break;
-            }
-            let queries: Vec<_> = (0..100).map(|_| points.choose(&mut rng).unwrap()).collect();
+        let correctly_retrieved = queries
+            .into_par_iter()
+            .map(|querying| {
+                let rtxn = env.read_txn().unwrap();
+                let reader = arroy::Reader::open(&rtxn, 0, database).unwrap();
 
-            let correctly_retrieved = queries
-                .into_par_iter()
-                .map(|querying| {
-                    let rtxn = env.read_txn().unwrap();
-                    let reader = arroy::Reader::open(&rtxn, 0, database).unwrap();
+                let relevant = partial_sort_by::<PerfectDistance>(
+                    points
+                        .iter()
+                        // Only evaluate the candidate points
+                        .filter(|(id, _)| {
+                            candidates.as_ref().map_or(true, |cand| cand.contains(*id))
+                        })
+                        .map(|(i, v)| (*i, *v)),
+                    querying.1,
+                    number_fetched,
+                );
 
-                    let relevant = partial_sort_by::<PerfectDistance>(
-                        points
-                            .iter()
-                            // Only evaluate the candidate points
-                            .filter(|(id, _)| {
-                                candidates.as_ref().map_or(true, |cand| cand.contains(*id))
-                            })
-                            .map(|(i, v)| (*i, *v)),
-                        querying.1,
+                let arroy = reader
+                    .nns_by_item(
+                        &rtxn,
+                        querying.0,
                         number_fetched,
-                    );
+                        None,
+                        Some(NonZeroUsize::new(OVERSAMPLING).unwrap()),
+                        candidates.as_ref(),
+                    )
+                    .unwrap()
+                    .unwrap();
 
-                    let arroy = reader
-                        .nns_by_item(
-                            &rtxn,
-                            querying.0,
-                            number_fetched,
-                            None,
-                            Some(NonZeroUsize::new(OVERSAMPLING).unwrap()),
-                            candidates.as_ref(),
-                        )
-                        .unwrap()
-                        .unwrap();
-
-                    let mut correctly_retrieved = Some(0);
-                    for ret in arroy {
-                        if relevant.iter().any(|(id, _, _)| *id == ret.0) {
-                            if let Some(correctly_retrieved) = &mut correctly_retrieved {
-                                *correctly_retrieved += 1;
-                            }
-                        } else if let Some(cand) = candidates.as_ref() {
-                            // We set the counter to -1 if we return a filtered out candidated
-                            if !cand.contains(ret.0) {
-                                correctly_retrieved = None;
-                            }
+                let mut correctly_retrieved = Some(0);
+                for ret in arroy {
+                    if relevant.iter().any(|(id, _, _)| *id == ret.0) {
+                        if let Some(correctly_retrieved) = &mut correctly_retrieved {
+                            *correctly_retrieved += 1;
+                        }
+                    } else if let Some(cand) = candidates.as_ref() {
+                        // We set the counter to -1 if we return a filtered out candidated
+                        if !cand.contains(ret.0) {
+                            correctly_retrieved = None;
                         }
                     }
+                }
 
-                    correctly_retrieved
-                })
-                .reduce(|| Some(0), |a, b| a.zip(b).map(|(a, b)| a + b));
+                correctly_retrieved
+            })
+            .reduce(|| Some(0), |a, b| a.zip(b).map(|(a, b)| a + b));
 
-            let recall = correctly_retrieved.unwrap_or(-1) as f32 / (number_fetched as f32 * 100.0);
-            recalls.push(Recall(recall));
-        }
-    });
-
+        let recall = correctly_retrieved.unwrap_or(-1) as f32 / (number_fetched as f32 * 100.0);
+        recalls.push(Recall(recall));
+    }
     let time_to_search = now.elapsed();
 
     // make the distance name smaller

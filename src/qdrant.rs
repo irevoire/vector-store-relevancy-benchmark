@@ -8,7 +8,8 @@ use byte_unit::{Byte, UnitType};
 use qdrant_client::{
     qdrant::{
         point_id::PointIdOptions, Condition, CreateCollectionBuilder, Filter, PointId, PointStruct,
-        Range, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
+        Range, SearchBatchPoints, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder,
+        VectorParamsBuilder,
     },
     Payload, Qdrant,
 };
@@ -104,40 +105,20 @@ pub fn measure_qdrant_distance<
             if number_fetched > points.len() {
                 break;
             }
+            let queries: Vec<_> = (0..100).map(|_| points.choose(&mut rng).unwrap()).collect();
             let mut correctly_retrieved = Some(0);
-            for _ in 0..100 {
-                let querying = points.choose(&mut rng).unwrap();
 
-                let relevant = partial_sort_by::<D::RealDistance>(
-                    points
-                        .iter()
-                        .filter(|point| {
-                            // Only evaluate the candidate points
-                            let get_id = |ps: &PointStruct| -> u64 {
-                                match ps.id.as_ref().unwrap().point_id_options.as_ref().unwrap() {
-                                    PointIdOptions::Num(id) => *id,
-                                    _ => panic!("what!"),
-                                }
-                            };
-                            match candidates_range {
-                                Some([l, h]) => (l..=h).contains(&(get_id(point) as u32)),
-                                None => true,
-                            }
-                        })
-                        .map(|point| (get_id_from_point(point), get_vector_from_point(point))),
-                    get_vector_from_point(querying),
-                    number_fetched,
-                );
+            let searches: Vec<_> = queries
+                .iter()
+                .map(|querying| {
+                    let search_builder = SearchPointsBuilder::new(
+                        collection_name,
+                        get_vector_from_point(querying),
+                        number_fetched as u64,
+                    )
+                    .params(SearchParamsBuilder::default().exact(EXACT));
 
-                let search_builder = SearchPointsBuilder::new(
-                    collection_name,
-                    get_vector_from_point(querying),
-                    number_fetched as u64,
-                )
-                .params(SearchParamsBuilder::default().exact(EXACT));
-
-                let response = client
-                    .search_points(match candidates_range {
+                    match candidates_range {
                         Some([l, h]) => {
                             let range = Range {
                                 gte: Some(l as f64),
@@ -145,14 +126,54 @@ pub fn measure_qdrant_distance<
                                 ..Default::default()
                             };
                             let condition = Condition::range("id", range);
-                            search_builder.filter(Filter::must(Some(condition)))
+                            search_builder.filter(Filter::must(Some(condition))).build()
                         }
-                        None => search_builder,
-                    })
-                    .await
-                    .unwrap();
+                        None => search_builder.build(),
+                    }
+                })
+                .collect();
 
-                for point in response.result {
+            let relevants: Vec<_> = queries
+                .iter()
+                .map(|querying| {
+                    partial_sort_by::<D::RealDistance>(
+                        points
+                            .iter()
+                            .filter(|point| {
+                                // Only evaluate the candidate points
+                                let get_id = |ps: &PointStruct| -> u64 {
+                                    match ps.id.as_ref().unwrap().point_id_options.as_ref().unwrap()
+                                    {
+                                        PointIdOptions::Num(id) => *id,
+                                        _ => panic!("what!"),
+                                    }
+                                };
+                                match candidates_range {
+                                    Some([l, h]) => (l..=h).contains(&(get_id(point) as u32)),
+                                    None => true,
+                                }
+                            })
+                            .map(|point| (get_id_from_point(point), get_vector_from_point(point))),
+                        get_vector_from_point(querying),
+                        number_fetched,
+                    )
+                })
+                .collect();
+
+            let response = client
+                .search_batch_points(SearchBatchPoints {
+                    collection_name: "hello".to_string(),
+                    search_points: searches,
+                    read_consistency: None,
+                    timeout: None,
+                })
+                .await
+                .unwrap();
+
+            duration_secs += response.time;
+
+            for (response, relevant) in response.result.iter().zip(relevants) {
+                for point in &response.result {
                     if relevant
                         .iter()
                         .any(|(id, _, _)| *id == get_id_from_id(point.id.as_ref().unwrap()))
@@ -164,8 +185,6 @@ pub fn measure_qdrant_distance<
                         if !(l..=h).contains(&get_id_from_id(point.id.as_ref().unwrap())) {}
                     }
                 }
-
-                duration_secs += response.time;
             }
 
             let recall = correctly_retrieved.unwrap_or(-1) as f32 / (number_fetched as f32 * 100.0);
