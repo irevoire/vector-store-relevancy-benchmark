@@ -1,4 +1,8 @@
-use std::{net::Ipv4Addr, str::FromStr, time::Duration};
+use std::{
+    net::Ipv4Addr,
+    str::FromStr,
+    time::{Duration, Instant},
+};
 
 use byte_unit::{Byte, UnitType};
 use qdrant_client::{
@@ -72,7 +76,7 @@ pub fn measure_qdrant_distance<
             .unwrap();
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let now = std::time::Instant::now();
+        let before_build = Instant::now();
         let mut rng = StdRng::seed_from_u64(RNG_SEED);
         client
             .upsert_points_chunked(
@@ -92,8 +96,9 @@ pub fn measure_qdrant_distance<
             database_size += entry.metadata().map_or(0, |metadata| metadata.len());
         }
         let database_size = Byte::from_u64(database_size).get_appropriate_unit(UnitType::Binary);
-        let time_to_index = now.elapsed();
+        let time_to_index = before_build.elapsed();
 
+        let mut duration_secs = 0.0;
         let mut recalls = Vec::new();
         for number_fetched in RECALL_TESTED {
             if number_fetched > points.len() {
@@ -131,7 +136,7 @@ pub fn measure_qdrant_distance<
                 )
                 .params(SearchParamsBuilder::default().exact(EXACT));
 
-                let qdrant = client
+                let response = client
                     .search_points(match candidates_range {
                         Some([l, h]) => {
                             let range = Range {
@@ -147,7 +152,7 @@ pub fn measure_qdrant_distance<
                     .await
                     .unwrap();
 
-                for point in qdrant.result {
+                for point in response.result {
                     if relevant
                         .iter()
                         .any(|(id, _, _)| *id == get_id_from_id(point.id.as_ref().unwrap()))
@@ -159,12 +164,14 @@ pub fn measure_qdrant_distance<
                         if !(l..=h).contains(&get_id_from_id(point.id.as_ref().unwrap())) {}
                     }
                 }
+
+                duration_secs += response.time;
             }
 
             let recall = correctly_retrieved.unwrap_or(-1) as f32 / (number_fetched as f32 * 100.0);
             recalls.push(Recall(recall));
         }
-        let time_to_search = now.elapsed();
+        let time_to_search = Duration::try_from_secs_f64(duration_secs).unwrap();
 
         let mut distance_name = D::QDRANT_DISTANCE.as_str_name().to_string();
         if D::BINARY_QUANTIZED {

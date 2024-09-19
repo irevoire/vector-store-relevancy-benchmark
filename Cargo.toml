@@ -15,6 +15,7 @@ indicatif = "0.17.8"
 memmap2 = "0.9.4"
 qdrant-client = "1.11.2"
 rand = "0.8.5"
+rayon = "1.10.0"
 reqwest = "0.12.5"
 roaring = "0.10.6"
 serde = { version = "1.0.204", features = ["derive"] }
