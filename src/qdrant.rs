@@ -7,9 +7,9 @@ use std::{
 use byte_unit::{Byte, UnitType};
 use qdrant_client::{
     qdrant::{
-        point_id::PointIdOptions, Condition, CreateCollectionBuilder, Filter, PointId, PointStruct,
-        Range, SearchBatchPoints, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder,
-        VectorParamsBuilder,
+        point_id::PointIdOptions, with_payload_selector::SelectorOptions, Condition,
+        CreateCollectionBuilder, Filter, PointId, PointStruct, Range, SearchBatchPoints,
+        SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
     },
     Payload, Qdrant,
 };
@@ -116,6 +116,7 @@ pub fn measure_qdrant_distance<
                         get_vector_from_point(querying),
                         number_fetched as u64,
                     )
+                    .with_vectors(false)
                     .params(SearchParamsBuilder::default().exact(EXACT));
 
                     match candidates_range {
