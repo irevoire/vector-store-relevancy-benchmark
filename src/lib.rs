@@ -20,7 +20,11 @@ use crate::qdrant::measure_qdrant_distance;
 pub const RECALL_TESTED: [usize; 6] = [1, 10, 20, 50, 100, 500];
 pub const RNG_SEED: u64 = 38;
 
-pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
+pub fn bench_over_all_distances(
+    dimensions: usize,
+    require_normalization: bool,
+    vectors: &[(u32, &[f32])],
+) {
     println!(
         "\x1b[1m{}\x1b[0m vectors are used for this measure",
         vectors.len()
@@ -77,7 +81,7 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
         // bench_qdrant_distance::<DotProduct, false>(),
         // bench_arroy_distance::<DotProduct, 1>(),
     ] {
-        (func)(dimensions, vectors);
+        (func)(dimensions, require_normalization, vectors);
     }
 }
 
@@ -126,13 +130,18 @@ fn bench_arroy_distance<
     D: Distance,
     const OVERSAMPLING: usize,
     const FILTER_SUBSET_PERCENT: usize,
->() -> fn(usize, &[(u32, &[f32])]) {
+>() -> fn(usize, bool, &[(u32, &[f32])]) {
     measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING, FILTER_SUBSET_PERCENT>
 }
 
 fn bench_qdrant_distance<D: Distance, const EXACT: bool, const FILTER_SUBSET_PERCENT: usize>(
-) -> fn(usize, &[(u32, &[f32])]) {
+) -> fn(usize, bool, &[(u32, &[f32])]) {
     measure_qdrant_distance::<D, EXACT, FILTER_SUBSET_PERCENT>
+}
+
+fn normalize_vector(input: &[f32]) -> Vec<f32> {
+    let norm: f32 = input.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    input.iter().map(|&x| x / norm).collect()
 }
 
 fn partial_sort_by<'a, D: arroy::Distance>(

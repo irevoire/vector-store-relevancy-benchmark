@@ -51,7 +51,11 @@ fn main() {
             .collect();
 
         dataset.header();
-        bench_over_all_distances(dataset.dimensions(), vectors.as_slice());
+        bench_over_all_distances(
+            dataset.dimensions(),
+            dataset.reduced_dimensions(),
+            vectors.as_slice(),
+        );
         println!();
     }
 }

@@ -11,7 +11,7 @@ use qdrant_client::{
 use rand::prelude::SliceRandom;
 use rand::{rngs::StdRng, SeedableRng};
 
-use crate::{partial_sort_by, Distance, Recall, RECALL_TESTED, RNG_SEED};
+use crate::{normalize_vector, partial_sort_by, Distance, Recall, RECALL_TESTED, RNG_SEED};
 
 pub fn measure_qdrant_distance<
     D: Distance,
@@ -19,6 +19,7 @@ pub fn measure_qdrant_distance<
     const FILTER_SUBSET_PERCENT: usize,
 >(
     dimensions: usize,
+    require_normalization: bool,
     points: &[(u32, &[f32])],
 ) {
     let filtered_percentage = FILTER_SUBSET_PERCENT as f32;
@@ -32,9 +33,15 @@ pub fn measure_qdrant_distance<
     let points: Vec<_> = points
         .iter()
         .map(|(id, vector)| {
+            let vector = if require_normalization {
+                normalize_vector(vector)
+            } else {
+                vector.to_vec()
+            };
+
             PointStruct::new(
                 *id as u64,
-                vector.to_vec(),
+                vector,
                 Payload::try_from(serde_json::json!({ "id": *id })).unwrap(),
             )
         })

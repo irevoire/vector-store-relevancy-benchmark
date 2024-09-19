@@ -47,6 +47,10 @@ impl<T: AnyBitPattern> MatLEView<T> {
         self.reduced_dimensions
     }
 
+    pub fn reduced_dimensions(&self) -> bool {
+        self.reduced_dimensions != self.dimensions
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
