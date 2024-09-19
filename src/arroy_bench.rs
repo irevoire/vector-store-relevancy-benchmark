@@ -129,7 +129,7 @@ pub fn measure_arroy_distance<
         "[arroy]  {distance_name:16} x{OVERSAMPLING}: {recalls:?}, \
         indexed for: {time_to_index:02.2?}, \
         searched for: {time_to_search:02.2?}, \
-        size on disk: {database_size:#.2} \
+        size on disk: {database_size:#.2}, \
         searched in {filtered_percentage:#.2}%"
     );
 }
