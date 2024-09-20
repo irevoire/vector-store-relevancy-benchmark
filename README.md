@@ -19,5 +19,5 @@ You can [find the binaries](https://github.com/qdrant/qdrant/releases/latest) on
 
 Then run the benchmark with:
 ```bash
-cargo run --release --bin run
+cargo run --release
 ```
