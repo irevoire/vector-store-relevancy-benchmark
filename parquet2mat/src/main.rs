@@ -36,11 +36,16 @@ fn main() -> anyhow::Result<()> {
 
     for file_path in files {
         let file = File::open(&file_path)?;
-        let reader = SerializedFileReader::new(file)?;
+        let reader = SerializedFileReader::new(file)
+            .with_context(|| format!("while opening {}", file_path.display()))?;
 
         let mut embeddings_count = 0;
-        for result in reader.get_row_iter(None)? {
-            let row: Row = result?;
+        for result in reader
+            .get_row_iter(None)
+            .with_context(|| format!("while starting the iteration on {}", file_path.display()))?
+        {
+            let row: Row =
+                result.with_context(|| format!("while iterating on {}", file_path.display()))?;
             for (name, field) in row.get_column_iter() {
                 if name == &embedding_name {
                     embeddings_count += 1;
