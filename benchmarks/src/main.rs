@@ -1,4 +1,4 @@
-use vector_store_relevancy_benchmark::{bench_over_all_distances, MatLEView};
+use benchmarks::{bench_over_all_distances, MatLEView};
 
 fn hn_top_post() -> MatLEView<f32> {
     MatLEView::new("Hackernews top posts", "assets/hn-top-posts.mat", 1024)
