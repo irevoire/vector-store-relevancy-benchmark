@@ -1,4 +1,6 @@
-use std::{fs::File, marker::PhantomData, mem};
+use std::fs::File;
+use std::marker::PhantomData;
+use std::mem;
 
 use anyhow::Context;
 use bytemuck::{AnyBitPattern, PodCastError};
@@ -14,19 +16,11 @@ pub struct MatLEView<T> {
 
 impl<T: AnyBitPattern> MatLEView<T> {
     pub fn new(name: &'static str, path: &str, dimensions: usize) -> MatLEView<T> {
-        let file = File::open(path)
-            .with_context(|| format!("while opening {path}"))
-            .unwrap();
+        let file = File::open(path).with_context(|| format!("while opening {path}")).unwrap();
         let mmap = unsafe { Mmap::map(&file).unwrap() };
 
         assert!((mmap.len() / mem::size_of::<T>()) % dimensions == 0);
-        MatLEView {
-            name,
-            mmap,
-            dimensions,
-            reduced_dimensions: dimensions,
-            _marker: PhantomData,
-        }
+        MatLEView { name, mmap, dimensions, reduced_dimensions: dimensions, _marker: PhantomData }
     }
 
     pub fn reduce_dimensions_to(&mut self, dimensions: usize) {
@@ -85,11 +79,7 @@ impl<T: AnyBitPattern> MatLEView<T> {
 pub const HN_TOP_POSTS_PATH: &str = "assets/hn-top-posts.mat";
 pub const HN_TOP_POSTS_DIMENSIONS: usize = 1024;
 pub fn hn_top_posts() -> MatLEView<f32> {
-    MatLEView::new(
-        "Hackernews top posts",
-        HN_TOP_POSTS_PATH,
-        HN_TOP_POSTS_DIMENSIONS,
-    )
+    MatLEView::new("Hackernews top posts", HN_TOP_POSTS_PATH, HN_TOP_POSTS_DIMENSIONS)
 }
 
 pub const HN_POSTS_PATH: &str = "assets/hn-posts.mat";

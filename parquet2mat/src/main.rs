@@ -23,16 +23,13 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let Args {
-        files,
-        embedding_name,
-        output: output_path,
-    } = Args::parse();
+    let Args { files, embedding_name, output: output_path } = Args::parse();
 
     let output = File::create(&output_path)
         .with_context(|| format!("while opening {}", output_path.display()))?;
     let mut output = io::BufWriter::new(output);
     let mut total_embeddings_count: usize = 0;
+    let mut guessed_dimensions = None;
 
     for file_path in files {
         let file = File::open(&file_path)?;
@@ -51,17 +48,21 @@ fn main() -> anyhow::Result<()> {
                     embeddings_count += 1;
                     let list = match field {
                         Field::ListInternal(list) => list,
-                        _ => bail!(
-                            "this is not a list while processing {}",
-                            file_path.display()
-                        ),
+                        _ => bail!("this is not a list while processing {}", file_path.display()),
                     };
 
                     let mut floats = Vec::with_capacity(list.len());
+                    guessed_dimensions = match guessed_dimensions {
+                        Some(x) => Some(x),
+                        None => {
+                            println!("the embeddings are of {} dimensions", list.len());
+                            Some(list.len())
+                        }
+                    };
                     for element in list.elements() {
                         match element {
-                            // Field::Float16(f16) => todo!(),
-                            // Field::Float(_) => todo!(),
+                            Field::Float16(f16) => floats.push((*f16).into()),
+                            Field::Float(simple) => floats.push(*simple),
                             Field::Double(double) => floats.push(*double as f32),
                             _ => bail!(
                                 "this is not a list of doubles while processing {}",

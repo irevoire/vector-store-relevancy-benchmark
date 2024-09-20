@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 
 mkdir -p assets
-
 mkdir -p tmp-assets
-rm -rf tmp-assets/*
 
 # Function to download a file, retrying a specified number of times
 download_file() {
@@ -58,5 +56,15 @@ cargo run --release -p parquet2mat -- \
     --output assets/db-pedia-OpenAI-text-embedding-3-large.mat
 rm -rf tmp-assets/*
 
+# Call the function to download parquet files in parallel
+cat wikipedia-768.urls | xargs -n 1 -P $max_parallel -I {} bash -c 'download_file {}'
+cargo run --release -p parquet2mat -- \
+    tmp-assets/* \
+    --embedding-name 'emb' \
+    --output assets/wikipedia-22-12-simple-embeddings.mat
+rm -rf tmp-assets/*
+
 curl -o assets/hn-posts.mat 'https://static.wilsonl.in/hackerverse/dataset/post-embs-data.mat'
 curl -o assets/hn-top-posts.mat 'https://static.wilsonl.in/hackerverse/dataset/toppost-embs-data.mat'
+
+rm -rf tmp-assets

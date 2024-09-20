@@ -1,12 +1,13 @@
-use std::{num::NonZeroUsize, time::Duration};
+use std::num::NonZeroUsize;
+use std::time::Duration;
 
-use arroy::{
-    internals::{self, NodeCodec},
-    Database, ItemId, Writer,
-};
+use arroy::internals::{self, NodeCodec};
+use arroy::{Database, ItemId, Writer};
 use byte_unit::{Byte, UnitType};
 use heed::{EnvOpenOptions, RwTxn};
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use roaring::RoaringBitmap;
 
@@ -24,12 +25,8 @@ pub fn measure_arroy_distance<
     points: &[(u32, &[f32])],
 ) {
     let dir = tempfile::tempdir().unwrap();
-    let env = unsafe {
-        EnvOpenOptions::new()
-            .map_size(TWENTY_HUNDRED_MIB)
-            .open(dir.path())
-    }
-    .unwrap();
+    let env =
+        unsafe { EnvOpenOptions::new().map_size(TWENTY_HUNDRED_MIB).open(dir.path()) }.unwrap();
 
     let now = std::time::Instant::now();
     let mut arroy_seed = StdRng::seed_from_u64(13);
@@ -121,10 +118,7 @@ pub fn measure_arroy_distance<
             .reduce(
                 || (Some(0), Duration::default()),
                 |(aanswer, aduration), (banswer, bduration)| {
-                    (
-                        aanswer.zip(banswer).map(|(a, b)| a + b),
-                        aduration + bduration,
-                    )
+                    (aanswer.zip(banswer).map(|(a, b)| a + b), aduration + bduration)
                 },
             );
 
@@ -158,9 +152,7 @@ fn load_into_arroy<D: arroy::Distance>(
     for (i, vector) in points.iter() {
         assert_eq!(vector.len(), dimensions);
         if require_normalization {
-            writer
-                .add_item(wtxn, *i, &normalize_vector(vector))
-                .unwrap();
+            writer.add_item(wtxn, *i, &normalize_vector(vector)).unwrap();
         } else {
             writer.add_item(wtxn, *i, vector).unwrap();
         }

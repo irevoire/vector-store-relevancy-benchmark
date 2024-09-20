@@ -1,4 +1,11 @@
+# Rust
 Cargo.lock
-/assets
 /target
+
+# Datasets Downloads
+/assets
+/tmp-assets
+
+# Qdrant
 /storage
+.qdrant-initialized

@@ -2,17 +2,14 @@ mod arroy_bench;
 mod dataset;
 mod qdrant;
 
-pub use dataset::*;
-
 use std::fmt;
 use std::fmt::Write;
 
 use arroy::distances::*;
-use arroy::{
-    internals::{Leaf, UnalignedVector},
-    ItemId,
-};
+use arroy::internals::{Leaf, UnalignedVector};
+use arroy::ItemId;
 use arroy_bench::measure_arroy_distance;
+pub use dataset::*;
 use qdrant_client::qdrant::{quantization_config, ScalarQuantizationBuilder};
 
 use crate::qdrant::measure_qdrant_distance;
@@ -25,14 +22,9 @@ pub fn bench_over_all_distances(
     require_normalization: bool,
     vectors: &[(u32, &[f32])],
 ) {
-    println!(
-        "\x1b[1m{}\x1b[0m vectors are used for this measure",
-        vectors.len()
-    );
+    println!("\x1b[1m{}\x1b[0m vectors are used for this measure", vectors.len());
     let mut recall_tested = String::new();
-    RECALL_TESTED
-        .iter()
-        .for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
+    RECALL_TESTED.iter().for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
     let recall_tested = recall_tested.trim_end_matches(", ");
     println!("Recall tested is:             [{recall_tested}]");
 
@@ -150,12 +142,7 @@ fn partial_sort_by<'a, D: arroy::Distance>(
     elements: usize,
 ) -> Vec<(ItemId, &'a [f32], f32)> {
     let mut ret = Vec::with_capacity(elements);
-    ret.extend(
-        vectors
-            .by_ref()
-            .take(elements)
-            .map(|(i, v)| (i, v, distance::<D>(sort_by, v))),
-    );
+    ret.extend(vectors.by_ref().take(elements).map(|(i, v)| (i, v, distance::<D>(sort_by, v))));
     ret.sort_by(|(_, _, left), (_, _, right)| left.total_cmp(right));
 
     if ret.is_empty() {
@@ -179,15 +166,9 @@ fn partial_sort_by<'a, D: arroy::Distance>(
 
 fn distance<D: arroy::Distance>(left: &[f32], right: &[f32]) -> f32 {
     let left = UnalignedVector::from_slice(left);
-    let left = Leaf {
-        header: D::new_header(&left),
-        vector: left,
-    };
+    let left = Leaf { header: D::new_header(&left), vector: left };
     let right = UnalignedVector::from_slice(right);
-    let right = Leaf {
-        header: D::new_header(&right),
-        vector: right,
-    };
+    let right = Leaf { header: D::new_header(&right), vector: right };
 
     D::built_distance(&left, &right)
 }

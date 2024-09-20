@@ -1,19 +1,17 @@
-use std::{
-    net::Ipv4Addr,
-    str::FromStr,
-    time::{Duration, Instant},
-};
+use std::net::Ipv4Addr;
+use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 use byte_unit::{Byte, UnitType};
-use qdrant_client::{
-    qdrant::{
-        point_id::PointIdOptions, Condition, CreateCollectionBuilder, Filter, PointId, PointStruct,
-        Range, SearchParamsBuilder, SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
-    },
-    Payload, Qdrant,
+use qdrant_client::qdrant::point_id::PointIdOptions;
+use qdrant_client::qdrant::{
+    Condition, CreateCollectionBuilder, Filter, PointId, PointStruct, Range, SearchParamsBuilder,
+    SearchPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
 };
+use qdrant_client::{Payload, Qdrant};
 use rand::prelude::SliceRandom;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::{normalize_vector, partial_sort_by, Distance, Recall, RECALL_TESTED, RNG_SEED};
 
@@ -37,11 +35,8 @@ pub fn measure_qdrant_distance<
     let points: Vec<_> = points
         .iter()
         .map(|(id, vector)| {
-            let vector = if require_normalization {
-                normalize_vector(vector)
-            } else {
-                vector.to_vec()
-            };
+            let vector =
+                if require_normalization { normalize_vector(vector) } else { vector.to_vec() };
 
             PointStruct::new(
                 *id as u64,
@@ -55,10 +50,7 @@ pub fn measure_qdrant_distance<
         let ip = Ipv4Addr::from_str("127.0.0.1").unwrap();
         let port = 6334;
         let url = format!("http://{}:{}/", ip, port);
-        let client = Qdrant::from_url(&url)
-            .timeout(Duration::from_secs(1800))
-            .build()
-            .unwrap();
+        let client = Qdrant::from_url(&url).timeout(Duration::from_secs(1800)).build().unwrap();
         let collection_name = "hello";
 
         let _ = client.delete_collection(collection_name).await;
@@ -66,10 +58,7 @@ pub fn measure_qdrant_distance<
         client
             .create_collection(
                 CreateCollectionBuilder::new(collection_name)
-                    .vectors_config(VectorParamsBuilder::new(
-                        dimensions as u64,
-                        D::QDRANT_DISTANCE,
-                    ))
+                    .vectors_config(VectorParamsBuilder::new(dimensions as u64, D::QDRANT_DISTANCE))
                     .quantization_config(D::qdrant_quantization_config()),
             )
             .await
@@ -203,14 +192,7 @@ fn get_id_from_point(point: &PointStruct) -> u32 {
 }
 
 fn get_vector_from_point(point: &PointStruct) -> &[f32] {
-    match point
-        .vectors
-        .as_ref()
-        .unwrap()
-        .vectors_options
-        .as_ref()
-        .unwrap()
-    {
+    match point.vectors.as_ref().unwrap().vectors_options.as_ref().unwrap() {
         qdrant_client::qdrant::vectors::VectorsOptions::Vector(vec) => vec.data.as_slice(),
         qdrant_client::qdrant::vectors::VectorsOptions::Vectors(_) => todo!(),
     }

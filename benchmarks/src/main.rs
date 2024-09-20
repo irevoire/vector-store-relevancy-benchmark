@@ -34,21 +34,26 @@ fn db_pedia_ada_002_large() -> MatLEView<f32> {
     )
 }
 
+fn wikipedia_768() -> MatLEView<f32> {
+    MatLEView::new(
+        "wikipedia 22 12 simple embeddings",
+        "assets/wikipedia-22-12-simple-embeddings.mat",
+        768,
+    )
+}
+
 fn main() {
-    let take = 10_000;
+    let take = 100_000;
     for dataset in [
         // &hn_posts(),
         // &hn_top_post(),
         // &db_pedia_3_large_reduced_to_1536(),
         // &db_pedia_3_large(),
-        &db_pedia_ada_002_large(),
+        // &db_pedia_ada_002_large(),
+        &wikipedia_768(),
     ] {
-        let vectors: Vec<(u32, &[f32])> = dataset
-            .iter()
-            .enumerate()
-            .map(|(i, v)| (i as u32, v))
-            .take(take)
-            .collect();
+        let vectors: Vec<(u32, &[f32])> =
+            dataset.iter().enumerate().map(|(i, v)| (i as u32, v)).take(take).collect();
 
         dataset.header();
         bench_over_all_distances(
