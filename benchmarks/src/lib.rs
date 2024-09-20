@@ -37,19 +37,6 @@ pub fn bench_over_all_distances(
     println!("Recall tested is:             [{recall_tested}]");
 
     for func in &[
-        // qdrant
-        // bench_qdrant_distance::<Angular, false, 100>(),
-        // bench_qdrant_distance::<Angular, true, 100>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, false, 100>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, true, 100>(),
-        // bench_qdrant_distance::<Angular, false, 50>(),
-        // bench_qdrant_distance::<Angular, true, 50>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, false, 50>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, true, 50>(),
-        // bench_qdrant_distance::<Angular, false, 2>(),
-        // bench_qdrant_distance::<Angular, true, 2>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, false, 2>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, true, 2>(),
         // arroy
         bench_arroy_distance::<Angular, 1, 100>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 1, 100>(),
@@ -60,6 +47,19 @@ pub fn bench_over_all_distances(
         bench_arroy_distance::<Angular, 1, 2>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 1, 2>(),
         bench_arroy_distance::<BinaryQuantizedAngular, 3, 2>(),
+        // qdrant
+        bench_qdrant_distance::<Angular, false, 100>(),
+        bench_qdrant_distance::<Angular, true, 100>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false, 100>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true, 100>(),
+        bench_qdrant_distance::<Angular, false, 50>(),
+        bench_qdrant_distance::<Angular, true, 50>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false, 50>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true, 50>(),
+        bench_qdrant_distance::<Angular, false, 2>(),
+        bench_qdrant_distance::<Angular, true, 2>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, false, 2>(),
+        bench_qdrant_distance::<BinaryQuantizedAngular, true, 2>(),
         // bench_arroy_distance::<Angular, 1>(),
         // bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
         // bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
