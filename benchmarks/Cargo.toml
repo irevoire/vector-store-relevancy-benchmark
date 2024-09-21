@@ -8,6 +8,8 @@ anyhow = "1.0.86"
 arroy = { git = "https://github.com/meilisearch/arroy", rev = "2386594" }
 byte-unit = "5.1.4"
 bytemuck = "1.16.1"
+clap = { version = "4.5.18", features = ["derive"] }
+enum-iterator = "2.1.0"
 futures-util = "0.3.30"
 heed = "0.20.3"
 memmap2 = "0.9.4"
