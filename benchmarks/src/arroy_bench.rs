@@ -11,7 +11,7 @@ use rand::SeedableRng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use roaring::RoaringBitmap;
 
-use crate::{normalize_vector, partial_sort_by, Recall, RECALL_TESTED, RNG_SEED};
+use crate::{partial_sort_by, Recall, RECALL_TESTED, RNG_SEED};
 const TWENTY_HUNDRED_MIB: usize = 2000 * 1024 * 1024 * 1024;
 
 pub fn measure_arroy_distance<
@@ -21,7 +21,6 @@ pub fn measure_arroy_distance<
     const FILTER_SUBSET_PERCENT: usize,
 >(
     dimensions: usize,
-    require_normalization: bool,
     points: &[(u32, &[f32])],
 ) {
     let dir = tempfile::tempdir().unwrap();
@@ -36,14 +35,7 @@ pub fn measure_arroy_distance<
     let database = env
         .create_database::<internals::KeyCodec, NodeCodec<ArroyDistance>>(&mut wtxn, None)
         .unwrap();
-    let inserted = load_into_arroy(
-        &mut arroy_seed,
-        &mut wtxn,
-        database,
-        dimensions,
-        require_normalization,
-        points,
-    );
+    let inserted = load_into_arroy(&mut arroy_seed, &mut wtxn, database, dimensions, points);
     wtxn.commit().unwrap();
 
     let filtered_percentage = FILTER_SUBSET_PERCENT as f32;
@@ -144,18 +136,13 @@ fn load_into_arroy<D: arroy::Distance>(
     wtxn: &mut RwTxn,
     database: Database<D>,
     dimensions: usize,
-    require_normalization: bool,
     points: &[(ItemId, &[f32])],
 ) -> RoaringBitmap {
     let writer = Writer::<D>::new(database, 0, dimensions);
     let mut candidates = RoaringBitmap::new();
     for (i, vector) in points.iter() {
         assert_eq!(vector.len(), dimensions);
-        if require_normalization {
-            writer.add_item(wtxn, *i, &normalize_vector(vector)).unwrap();
-        } else {
-            writer.add_item(wtxn, *i, vector).unwrap();
-        }
+        writer.add_item(wtxn, *i, vector).unwrap();
         assert!(candidates.push(*i));
     }
     writer.build(wtxn, rng, None).unwrap();

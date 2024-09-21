@@ -10,7 +10,6 @@ pub struct MatLEView<T> {
     name: &'static str,
     mmap: Mmap,
     dimensions: usize,
-    reduced_dimensions: usize,
     _marker: PhantomData<T>,
 }
 
@@ -20,11 +19,7 @@ impl<T: AnyBitPattern> MatLEView<T> {
         let mmap = unsafe { Mmap::map(&file).unwrap() };
 
         assert!((mmap.len() / mem::size_of::<T>()) % dimensions == 0);
-        MatLEView { name, mmap, dimensions, reduced_dimensions: dimensions, _marker: PhantomData }
-    }
-
-    pub fn reduce_dimensions_to(&mut self, dimensions: usize) {
-        self.reduced_dimensions = dimensions;
+        MatLEView { name, mmap, dimensions, _marker: PhantomData }
     }
 
     pub fn header(&self) {
@@ -32,17 +27,12 @@ impl<T: AnyBitPattern> MatLEView<T> {
             "{} - {} vectors of \x1b[1m{}\x1b[0m dimensions",
             self.name,
             self.len(),
-            self.reduced_dimensions
+            self.dimensions
         );
     }
 
-    #[allow(clippy::misnamed_getters)]
     pub fn dimensions(&self) -> usize {
-        self.reduced_dimensions
-    }
-
-    pub fn reduced_dimensions(&self) -> bool {
-        self.reduced_dimensions != self.dimensions
+        self.dimensions
     }
 
     pub fn is_empty(&self) -> bool {
@@ -57,7 +47,7 @@ impl<T: AnyBitPattern> MatLEView<T> {
         let tsize = mem::size_of::<T>();
         if (index * self.dimensions + self.dimensions) * tsize < self.mmap.len() {
             let start = index * self.dimensions;
-            let bytes = &self.mmap[start * tsize..(start + self.reduced_dimensions) * tsize];
+            let bytes = &self.mmap[start * tsize..(start + self.dimensions) * tsize];
             match bytemuck::try_cast_slice::<u8, T>(bytes) {
                 Ok(slice) => Some(Ok(slice)),
                 Err(e) => Some(Err(e)),
