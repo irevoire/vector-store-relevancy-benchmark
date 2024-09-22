@@ -1,9 +1,7 @@
 use std::time::{Duration, Instant};
 
 use arroy::distances::Angular;
-use benchmarks::{
-    bench_over_all_distances, distance, prepare_and_run, MatLEView, Recall, RECALL_TESTED, RNG_SEED,
-};
+use benchmarks::{prepare_and_run, MatLEView, Recall, RECALL_TESTED, RNG_SEED};
 use byte_unit::{Byte, UnitType};
 use clap::{Parser, ValueEnum};
 use enum_iterator::Sequence;
@@ -12,7 +10,7 @@ use ordered_float::OrderedFloat;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom as _;
 use rand::SeedableRng;
-use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator as _, ParallelIterator};
+use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 use slice_group_by::GroupBy;
 
@@ -123,7 +121,7 @@ struct Args {
     filterings: Vec<ScenarioFiltering>,
 
     /// Number of vectors to evaluate from the datasets.
-    #[arg(long, default_value_t = 100_000)]
+    #[arg(long, default_value_t = 10_000)]
     count: usize,
 }
 
@@ -157,6 +155,9 @@ fn main() {
         if previous_dataset != Some(dataset.name()) {
             previous_dataset = Some(dataset.name());
             dataset.header();
+            if dataset.len() != count {
+                println!("We are evaluating on a subset of \x1b[1m{count}\x1b[0m vectors");
+            }
         }
 
         let points: Vec<_> =
@@ -175,7 +176,7 @@ fn main() {
                 (id, points.iter().map(|(id, _)| *id).take(max).collect::<Vec<_>>())
             })
             .collect();
-        let recall_answers: Vec<_> = RECALL_TESTED.iter().map(|&count| &queries[..count]).collect();
+        // let recall_answers: Vec<_> = RECALL_TESTED.iter().map(|&count| &queries[..count]).collect();
 
         for (contender, ScenarioSearch { over_sampling, filtering }) in search {
             match contender {
@@ -192,32 +193,17 @@ fn main() {
 
                                 let mut time_to_search = Duration::default();
                                 let mut recalls = Vec::new();
-                                for answers in &recall_answers {
-                                    let number_fetched = answers.len();
+                                for number_fetched in RECALL_TESTED {
                                     if number_fetched > points.len() {
                                         break;
                                     }
 
                                     let (correctly_retrieved, duration) = queries
                                         .par_iter()
-                                        .map(|(&id, _target)| {
+                                        .map(|(&id, relevants)| {
                                             let rtxn = env.read_txn().unwrap();
                                             let reader =
                                                 arroy::Reader::open(&rtxn, 0, database).unwrap();
-
-                                            // let relevant = partial_sort_by::<Angular>(
-                                            //     points
-                                            //         .iter()
-                                            //         // Only evaluate the candidate points
-                                            //         .filter(|(id, _)| {
-                                            //             candidates
-                                            //                 .as_ref()
-                                            //                 .map_or(true, |cand| cand.contains(*id))
-                                            //         })
-                                            //         .map(|(i, v)| (*i, *v)),
-                                            //     querying.1,
-                                            //     number_fetched,
-                                            // );
 
                                             let now = std::time::Instant::now();
                                             let arroy_answer = reader
@@ -235,7 +221,7 @@ fn main() {
 
                                             let mut correctly_retrieved = Some(0);
                                             for (id, _dist) in arroy_answer {
-                                                if answers.iter().any(|(&rid, _)| rid == id) {
+                                                if relevants.iter().any(|&rid| rid == id) {
                                                     if let Some(correctly_retrieved) =
                                                         &mut correctly_retrieved
                                                     {
