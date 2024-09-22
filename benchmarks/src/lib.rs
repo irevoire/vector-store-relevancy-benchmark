@@ -11,6 +11,7 @@ use arroy::distances::*;
 use arroy::internals::{Leaf, UnalignedVector};
 use arroy::ItemId;
 use arroy_bench::measure_arroy_distance;
+pub use arroy_bench::prepare_and_run;
 pub use dataset::*;
 use qdrant_client::qdrant::{quantization_config, ScalarQuantizationBuilder};
 
@@ -157,7 +158,7 @@ fn partial_sort_by<'a, D: arroy::Distance>(
     ret
 }
 
-fn distance<D: arroy::Distance>(left: &[f32], right: &[f32]) -> f32 {
+pub fn distance<D: arroy::Distance>(left: &[f32], right: &[f32]) -> f32 {
     let left = UnalignedVector::from_slice(left);
     let left = Leaf { header: D::new_header(&left), vector: left };
     let right = UnalignedVector::from_slice(right);

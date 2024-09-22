@@ -2,7 +2,7 @@ use std::num::NonZeroUsize;
 use std::time::Duration;
 
 use arroy::internals::{self, NodeCodec};
-use arroy::{Database, ItemId, Writer};
+use arroy::{Database, Distance, ItemId, Writer};
 use byte_unit::{Byte, UnitType};
 use heed::{EnvOpenOptions, RwTxn};
 use rand::rngs::StdRng;
@@ -13,6 +13,28 @@ use roaring::RoaringBitmap;
 
 use crate::{partial_sort_by, Recall, RECALL_TESTED, RNG_SEED};
 const TWENTY_HUNDRED_MIB: usize = 2000 * 1024 * 1024 * 1024;
+
+pub fn prepare_and_run<D, F>(points: &[(u32, &[f32])], execute: F)
+where
+    D: Distance,
+    F: FnOnce(&heed::Env, Database<D>),
+{
+    let dimensions = points[0].1.len();
+
+    let dir = tempfile::tempdir().unwrap();
+    let env =
+        unsafe { EnvOpenOptions::new().map_size(TWENTY_HUNDRED_MIB).open(dir.path()) }.unwrap();
+
+    let mut arroy_seed = StdRng::seed_from_u64(13);
+    let mut wtxn = env.write_txn().unwrap();
+
+    let database =
+        env.create_database::<internals::KeyCodec, NodeCodec<D>>(&mut wtxn, None).unwrap();
+    let _inserted = load_into_arroy(&mut arroy_seed, &mut wtxn, database, dimensions, points);
+    wtxn.commit().unwrap();
+
+    (execute)(&env, database);
+}
 
 pub fn measure_arroy_distance<
     ArroyDistance: arroy::Distance,

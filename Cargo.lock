@@ -237,7 +237,7 @@ dependencies = [
  "log",
  "memmap2",
  "nohash",
- "ordered-float 4.2.1",
+ "ordered-float 4.2.2",
  "rand",
  "rayon",
  "roaring",
@@ -379,7 +379,9 @@ dependencies = [
  "enum-iterator",
  "futures-util",
  "heed",
+ "itertools",
  "memmap2",
+ "ordered-float 4.2.2",
  "qdrant-client",
  "rand",
  "rayon",
@@ -387,6 +389,7 @@ dependencies = [
  "roaring",
  "serde",
  "serde_json",
+ "slice-group-by",
  "tempfile",
  "tokio",
  "walkdir",
@@ -1657,9 +1660,9 @@ dependencies = [
 
 [[package]]
 name = "ordered-float"
-version = "4.2.1"
+version = "4.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19ff2cf528c6c03d9ed653d6c4ce1dc0582dc4af309790ad92f07c1cd551b0be"
+checksum = "4a91171844676f8c7990ce64959210cd2eaef32c2612c50f9fae9f8aaa6065a6"
 dependencies = [
  "num-traits",
 ]
@@ -2439,6 +2442,12 @@ checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
 ]
+
+[[package]]
+name = "slice-group-by"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "826167069c09b99d56f31e9ae5c99049e932a98c9dc2dac47645b08dbbf76ba7"
 
 [[package]]
 name = "smallvec"

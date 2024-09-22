@@ -1,14 +1,16 @@
 use std::fs::File;
 use std::marker::PhantomData;
 use std::mem;
+use std::sync::Arc;
 
 use anyhow::Context;
 use bytemuck::{AnyBitPattern, PodCastError};
 use memmap2::Mmap;
 
+#[derive(Debug, Clone)]
 pub struct MatLEView<T> {
     name: &'static str,
-    mmap: Mmap,
+    mmap: Arc<Mmap>,
     dimensions: usize,
     _marker: PhantomData<T>,
 }
@@ -19,7 +21,7 @@ impl<T: AnyBitPattern> MatLEView<T> {
         let mmap = unsafe { Mmap::map(&file).unwrap() };
 
         assert!((mmap.len() / mem::size_of::<T>()) % dimensions == 0);
-        MatLEView { name, mmap, dimensions, _marker: PhantomData }
+        MatLEView { name, mmap: Arc::new(mmap), dimensions, _marker: PhantomData }
     }
 
     pub fn header(&self) {
@@ -29,6 +31,10 @@ impl<T: AnyBitPattern> MatLEView<T> {
             self.len(),
             self.dimensions
         );
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
     }
 
     pub fn dimensions(&self) -> usize {
@@ -63,6 +69,26 @@ impl<T: AnyBitPattern> MatLEView<T> {
 
     pub fn get_all(&self) -> Vec<&[T]> {
         self.iter().collect()
+    }
+}
+
+impl<T> PartialEq for MatLEView<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name.eq(other.name)
+    }
+}
+
+impl<T> Eq for MatLEView<T> {}
+
+impl<T> PartialOrd for MatLEView<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for MatLEView<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.cmp(other.name)
     }
 }
 
