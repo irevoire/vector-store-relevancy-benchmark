@@ -180,12 +180,17 @@ fn main() {
             previous_dataset = Some(dataset.name());
             dataset.header();
             if dataset.len() != count {
-                println!("We are using only \x1b[1m{count}\x1b[0m of them");
+                println!("\x1b[1m{count}\x1b[0m vectors are used for this measure");
             }
         }
 
         let points: Vec<_> =
             dataset.iter().take(count).enumerate().map(|(i, v)| (i as u32, v)).collect();
+
+        // let mut recall_tested = String::new();
+        // RECALL_TESTED.iter().for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
+        // let recall_tested = recall_tested.trim_end_matches(", ");
+        // println!("Recall tested is:             [{recall_tested}]");
 
         let max = RECALL_TESTED.iter().max().copied().unwrap();
         let mut rng = StdRng::seed_from_u64(RNG_SEED);
@@ -247,10 +252,6 @@ fn main() {
                                 let mut time_to_search = Duration::default();
                                 let mut recalls = Vec::new();
                                 for number_fetched in RECALL_TESTED {
-                                    if number_fetched > points.len() {
-                                        break;
-                                    }
-
                                     let (correctly_retrieved, duration) = queries
                                         .par_iter()
                                         .map(|(&id, _target, relevants)| {
