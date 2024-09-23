@@ -148,9 +148,11 @@ fn main() {
         .collect();
 
     let mut previous_dataset = None;
-    for grp in scenaris.linear_group_by(|(da, dia, _, _), (db, dib, _, _)| da == db && dia == dib) {
-        let (dataset, distance, _, _) = &grp[0];
-        let search = grp.iter().map(|(_, _, c, s)| (c, s));
+    for grp in scenaris
+        .linear_group_by(|(da, dia, ca, _), (db, dib, cb, _)| da == db && dia == dib && ca == cb)
+    {
+        let (dataset, distance, contender, _) = &grp[0];
+        let search = grp.iter().map(|(_, _, _, s)| s);
 
         if previous_dataset != Some(dataset.name()) {
             previous_dataset = Some(dataset.name());
@@ -178,19 +180,18 @@ fn main() {
             .collect();
         // let recall_answers: Vec<_> = RECALL_TESTED.iter().map(|&count| &queries[..count]).collect();
 
-        for (contender, ScenarioSearch { over_sampling, filtering }) in search {
-            match contender {
-                ScenarioContender::Qdrant => todo!(),
-                ScenarioContender::Arroy => {
-                    match distance {
-                        ScenarioDistance::Cosine => {
-                            let before_build = Instant::now();
-                            prepare_and_run::<Angular, _>(&points, |env, database| {
-                                let time_to_index = before_build.elapsed();
-                                let database_size =
-                                    Byte::from_u64(env.non_free_pages_size().unwrap())
-                                        .get_appropriate_unit(UnitType::Binary);
+        match contender {
+            ScenarioContender::Qdrant => todo!(),
+            ScenarioContender::Arroy => {
+                match distance {
+                    ScenarioDistance::Cosine => {
+                        let before_build = Instant::now();
+                        prepare_and_run::<Angular, _>(&points, |env, database| {
+                            let time_to_index = before_build.elapsed();
+                            let database_size = Byte::from_u64(env.non_free_pages_size().unwrap())
+                                .get_appropriate_unit(UnitType::Binary);
 
+                            for ScenarioSearch { over_sampling, filtering } in search {
                                 let mut time_to_search = Duration::default();
                                 let mut recalls = Vec::new();
                                 for number_fetched in RECALL_TESTED {
@@ -261,8 +262,8 @@ fn main() {
                                     size on disk: {database_size:#.2}, \
                                     searched in {filtered_percentage:#.2}%"
                                 );
-                            })
-                        }
+                            }
+                        })
                     }
                 }
             }
