@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::fmt;
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use arroy::distances::Angular;
@@ -12,6 +15,7 @@ use rand::seq::SliceRandom as _;
 use rand::SeedableRng;
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
+use roaring::RoaringBitmap;
 use slice_group_by::GroupBy;
 
 #[derive(Debug, Copy, Clone, ValueEnum, Sequence)]
@@ -67,12 +71,30 @@ enum ScenarioDistance {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Sequence)]
-enum ScenarioOverSampling {
+enum ScenarioOversampling {
     X1,
     X3,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Sequence)]
+impl ScenarioOversampling {
+    pub fn to_non_zero_usize(self) -> Option<NonZeroUsize> {
+        match self {
+            ScenarioOversampling::X1 => None,
+            ScenarioOversampling::X3 => NonZeroUsize::new(3),
+        }
+    }
+}
+
+impl fmt::Display for ScenarioOversampling {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScenarioOversampling::X1 => f.write_str("x1"),
+            ScenarioOversampling::X3 => f.write_str("x3"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ValueEnum, Sequence)]
 enum ScenarioFiltering {
     NoFilter,
     Filter50,
@@ -115,7 +137,7 @@ struct Args {
     distances: Vec<ScenarioDistance>,
 
     #[arg(long, value_enum)]
-    over_samplings: Vec<ScenarioOverSampling>,
+    over_samplings: Vec<ScenarioOversampling>,
 
     #[arg(long, value_enum)]
     filterings: Vec<ScenarioFiltering>,
@@ -127,7 +149,7 @@ struct Args {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct ScenarioSearch {
-    over_sampling: ScenarioOverSampling,
+    oversampling: ScenarioOversampling,
     filtering: ScenarioFiltering,
 }
 
@@ -137,12 +159,12 @@ fn main() {
     let datasets = set_or_all::<_, MatLEView<f32>>(datasets);
     let contenders = set_or_all::<_, ScenarioContender>(contenders);
     let distances = set_or_all::<_, ScenarioDistance>(distances);
-    let over_samplings = set_or_all::<_, ScenarioOverSampling>(over_samplings);
+    let over_samplings = set_or_all::<_, ScenarioOversampling>(over_samplings);
     let filterings = set_or_all::<_, ScenarioFiltering>(filterings);
 
     let scenaris: Vec<_> = iproduct!(datasets, distances, contenders, over_samplings, filterings)
-        .map(|(dataset, distance, contender, over_sampling, filtering)| {
-            (dataset, distance, contender, ScenarioSearch { over_sampling, filtering })
+        .map(|(dataset, distance, contender, oversampling, filtering)| {
+            (dataset, distance, contender, ScenarioSearch { oversampling, filtering })
         })
         .sorted()
         .collect();
@@ -152,13 +174,13 @@ fn main() {
         .linear_group_by(|(da, dia, ca, _), (db, dib, cb, _)| da == db && dia == dib && ca == cb)
     {
         let (dataset, distance, contender, _) = &grp[0];
-        let search = grp.iter().map(|(_, _, _, s)| s);
+        let search: Vec<&ScenarioSearch> = grp.iter().map(|(_, _, _, s)| s).collect();
 
         if previous_dataset != Some(dataset.name()) {
             previous_dataset = Some(dataset.name());
             dataset.header();
             if dataset.len() != count {
-                println!("We are evaluating on a subset of \x1b[1m{count}\x1b[0m vectors");
+                println!("We are using only \x1b[1m{count}\x1b[0m of them");
             }
         }
 
@@ -167,18 +189,48 @@ fn main() {
 
         let max = RECALL_TESTED.iter().max().copied().unwrap();
         let mut rng = StdRng::seed_from_u64(RNG_SEED);
-        let queries: Vec<_> = (0..100).map(|_| points.choose(&mut rng).unwrap()).collect();
-        let queries: Vec<_> = queries
-            .iter()
+        let queries: Vec<_> = (0..100)
+            .map(|_| points.choose(&mut rng).unwrap())
             .map(|(id, target)| {
                 let mut points = points.clone();
                 points.par_sort_unstable_by_key(|(_, v)| {
                     OrderedFloat(benchmarks::distance::<Angular>(target, v))
                 });
-                (id, points.iter().map(|(id, _)| *id).take(max).collect::<Vec<_>>())
+
+                // We collect the different filtered versions here.
+                let filtered: HashMap<_, _> = search
+                    .iter()
+                    .map(|ScenarioSearch { filtering, .. }| {
+                        let candidates = match filtering {
+                            ScenarioFiltering::NoFilter => None,
+                            filtering => {
+                                let total = points.len() as f32;
+                                let filtering = filtering.to_f32();
+                                Some(
+                                    points
+                                        .iter()
+                                        .map(|(id, _)| id)
+                                        .take((total * filtering) as usize)
+                                        .collect::<RoaringBitmap>(),
+                                )
+                            }
+                        };
+
+                        // This is the real expected answer without the filtered out candidates.
+                        let answer = points
+                            .iter()
+                            .map(|(id, _)| *id)
+                            .filter(|&id| candidates.as_ref().map_or(true, |c| c.contains(id)))
+                            .take(max)
+                            .collect::<Vec<_>>();
+
+                        (*filtering, (candidates, answer))
+                    })
+                    .collect();
+
+                (id, target, filtered)
             })
             .collect();
-        // let recall_answers: Vec<_> = RECALL_TESTED.iter().map(|&count| &queries[..count]).collect();
 
         match contender {
             ScenarioContender::Qdrant => todo!(),
@@ -191,7 +243,7 @@ fn main() {
                             let database_size = Byte::from_u64(env.non_free_pages_size().unwrap())
                                 .get_appropriate_unit(UnitType::Binary);
 
-                            for ScenarioSearch { over_sampling, filtering } in search {
+                            for ScenarioSearch { oversampling, filtering } in &search {
                                 let mut time_to_search = Duration::default();
                                 let mut recalls = Vec::new();
                                 for number_fetched in RECALL_TESTED {
@@ -201,11 +253,12 @@ fn main() {
 
                                     let (correctly_retrieved, duration) = queries
                                         .par_iter()
-                                        .map(|(&id, relevants)| {
+                                        .map(|(&id, _target, relevants)| {
                                             let rtxn = env.read_txn().unwrap();
                                             let reader =
                                                 arroy::Reader::open(&rtxn, 0, database).unwrap();
 
+                                            let (candidates, relevants) = &relevants[filtering];
                                             let now = std::time::Instant::now();
                                             let arroy_answer = reader
                                                 .nns_by_item(
@@ -213,8 +266,8 @@ fn main() {
                                                     id,
                                                     number_fetched,
                                                     None,
-                                                    None, // Some(NonZeroUsize::new(OVERSAMPLING).unwrap()),
-                                                    None, // candidates.as_ref(),
+                                                    oversampling.to_non_zero_usize(),
+                                                    candidates.as_ref(),
                                                 )
                                                 .unwrap()
                                                 .unwrap();
@@ -223,17 +276,15 @@ fn main() {
                                             let mut correctly_retrieved = Some(0);
                                             for (id, _dist) in arroy_answer {
                                                 if relevants.iter().any(|&rid| rid == id) {
-                                                    if let Some(correctly_retrieved) =
-                                                        &mut correctly_retrieved
-                                                    {
-                                                        *correctly_retrieved += 1;
+                                                    if let Some(cr) = &mut correctly_retrieved {
+                                                        *cr += 1;
                                                     }
-                                                } /* else if let Some(cand) = candidates.as_ref() {
-                                                      // We set the counter to -1 if we return a filtered out candidated
-                                                      if !cand.contains(ret.0) {
-                                                          correctly_retrieved = None;
-                                                      }
-                                                  }*/
+                                                } else if let Some(cand) = candidates.as_ref() {
+                                                    // We set the counter to -1 if we return a filtered out candidated
+                                                    if !cand.contains(id) {
+                                                        correctly_retrieved = None;
+                                                    }
+                                                }
                                             }
 
                                             (correctly_retrieved, elapsed)
@@ -249,14 +300,16 @@ fn main() {
                                         );
 
                                     time_to_search += duration;
-                                    let recall = correctly_retrieved.unwrap_or(-1) as f32
-                                        / (number_fetched as f32 * 100.0);
+                                    // If non-cnadidate documents are returned we show a recall of -1
+                                    let recall = correctly_retrieved.map_or(-1.0, |cr| {
+                                        cr as f32 / (number_fetched as f32 * 100.0)
+                                    });
                                     recalls.push(Recall(recall));
                                 }
 
-                                let filtered_percentage = filtering.to_f32();
+                                let filtered_percentage = filtering.to_f32() * 100.0;
                                 println!(
-                                    "[arroy]  {distance:16?} x{over_sampling:?}: {recalls:?}, \
+                                    "[arroy]  {distance:16?} {oversampling}: {recalls:?}, \
                                     indexed for: {time_to_index:02.2?}, \
                                     searched for: {time_to_search:02.2?}, \
                                     size on disk: {database_size:#.2}, \
