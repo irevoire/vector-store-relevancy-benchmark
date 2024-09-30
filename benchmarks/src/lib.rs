@@ -28,33 +28,33 @@ pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
 
     for func in &[
         // arroy
-        bench_arroy_distance::<Angular, 1, 100>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1, 100>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3, 100>(),
-        bench_arroy_distance::<Angular, 1, 50>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1, 50>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3, 50>(),
-        bench_arroy_distance::<Angular, 1, 2>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1, 2>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3, 2>(),
+        bench_arroy_distance::<Cosine, 1, 100>(),
+        bench_arroy_distance::<BinaryQuantizedCosine, 1, 100>(),
+        bench_arroy_distance::<BinaryQuantizedCosine, 3, 100>(),
+        bench_arroy_distance::<Cosine, 1, 50>(),
+        bench_arroy_distance::<BinaryQuantizedCosine, 1, 50>(),
+        bench_arroy_distance::<BinaryQuantizedCosine, 3, 50>(),
+        bench_arroy_distance::<Cosine, 1, 2>(),
+        bench_arroy_distance::<BinaryQuantizedCosine, 1, 2>(),
+        bench_arroy_distance::<BinaryQuantizedCosine, 3, 2>(),
         // qdrant
-        bench_qdrant_distance::<Angular, false, 100>(),
-        bench_qdrant_distance::<Angular, true, 100>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false, 100>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true, 100>(),
-        bench_qdrant_distance::<Angular, false, 50>(),
-        bench_qdrant_distance::<Angular, true, 50>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false, 50>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true, 50>(),
-        bench_qdrant_distance::<Angular, false, 2>(),
-        bench_qdrant_distance::<Angular, true, 2>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false, 2>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true, 2>(),
-        // bench_arroy_distance::<Angular, 1>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
+        bench_qdrant_distance::<Cosine, false, 100>(),
+        bench_qdrant_distance::<Cosine, true, 100>(),
+        bench_qdrant_distance::<BinaryQuantizedCosine, false, 100>(),
+        bench_qdrant_distance::<BinaryQuantizedCosine, true, 100>(),
+        bench_qdrant_distance::<Cosine, false, 50>(),
+        bench_qdrant_distance::<Cosine, true, 50>(),
+        bench_qdrant_distance::<BinaryQuantizedCosine, false, 50>(),
+        bench_qdrant_distance::<BinaryQuantizedCosine, true, 50>(),
+        bench_qdrant_distance::<Cosine, false, 2>(),
+        bench_qdrant_distance::<Cosine, true, 2>(),
+        bench_qdrant_distance::<BinaryQuantizedCosine, false, 2>(),
+        bench_qdrant_distance::<BinaryQuantizedCosine, true, 2>(),
+        // bench_arroy_distance::<Cosine, 1>(),
+        // bench_qdrant_distance::<BinaryQuantizedCosine, false>(),
+        // bench_qdrant_distance::<BinaryQuantizedCosine, true>(),
+        // bench_arroy_distance::<BinaryQuantizedCosine, 1>(),
+        // bench_arroy_distance::<BinaryQuantizedCosine, 3>(),
         // manhattan
         // bench_qdrant_distance::<Manhattan, false>(),
         // bench_arroy_distance::<Manhattan, 1>(),
@@ -108,8 +108,8 @@ macro_rules! arroy_distance {
     };
 }
 
-arroy_distance!(BinaryQuantizedAngular => real: Angular, qdrant: Cosine);
-arroy_distance!(Angular => qdrant: Cosine);
+arroy_distance!(BinaryQuantizedCosine => real: Cosine, qdrant: Cosine);
+arroy_distance!(Cosine => qdrant: Cosine);
 arroy_distance!(BinaryQuantizedEuclidean => real: Euclidean, qdrant: Euclid);
 arroy_distance!(Euclidean => qdrant: Euclid);
 arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
