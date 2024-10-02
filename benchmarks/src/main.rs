@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Write as _;
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
@@ -108,7 +109,7 @@ enum ScenarioFiltering {
 }
 
 impl ScenarioFiltering {
-    pub fn to_f32(self) -> f32 {
+    pub fn to_ratio_f32(self) -> f32 {
         match self {
             ScenarioFiltering::NoFilter => 1.0,
             ScenarioFiltering::Filter50 => 0.50,
@@ -187,10 +188,10 @@ fn main() {
         let points: Vec<_> =
             dataset.iter().take(count).enumerate().map(|(i, v)| (i as u32, v)).collect();
 
-        // let mut recall_tested = String::new();
-        // RECALL_TESTED.iter().for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
-        // let recall_tested = recall_tested.trim_end_matches(", ");
-        // println!("Recall tested is:             [{recall_tested}]");
+        let mut recall_tested = String::new();
+        RECALL_TESTED.iter().for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
+        let recall_tested = recall_tested.trim_end_matches(", ");
+        println!("Recall tested is:   [{recall_tested}]");
 
         let max = RECALL_TESTED.iter().max().copied().unwrap();
         let mut rng = StdRng::seed_from_u64(RNG_SEED);
@@ -210,7 +211,7 @@ fn main() {
                             ScenarioFiltering::NoFilter => None,
                             filtering => {
                                 let total = points.len() as f32;
-                                let filtering = filtering.to_f32();
+                                let filtering = filtering.to_ratio_f32();
                                 Some(
                                     points
                                         .iter()
@@ -248,6 +249,8 @@ fn main() {
                             let database_size = Byte::from_u64(env.non_free_pages_size().unwrap())
                                 .get_appropriate_unit(UnitType::Binary);
 
+                            println!("indexing: {time_to_index:02.2?}, size: {database_size:#.2}");
+
                             for ScenarioSearch { oversampling, filtering } in &search {
                                 let mut time_to_search = Duration::default();
                                 let mut recalls = Vec::new();
@@ -260,6 +263,11 @@ fn main() {
                                                 arroy::Reader::open(&rtxn, 0, database).unwrap();
 
                                             let (candidates, relevants) = &relevants[filtering];
+                                            // Only keep the top number fetched documents.
+                                            let relevants = relevants
+                                                .get(..number_fetched)
+                                                .unwrap_or(relevants);
+
                                             let now = std::time::Instant::now();
                                             let arroy_answer = reader
                                                 .nns_by_item(
@@ -276,7 +284,7 @@ fn main() {
 
                                             let mut correctly_retrieved = Some(0);
                                             for (id, _dist) in arroy_answer {
-                                                if relevants.iter().any(|&rid| rid == id) {
+                                                if relevants.contains(&id) {
                                                     if let Some(cr) = &mut correctly_retrieved {
                                                         *cr += 1;
                                                     }
@@ -301,19 +309,17 @@ fn main() {
                                         );
 
                                     time_to_search += duration;
-                                    // If non-cnadidate documents are returned we show a recall of -1
+                                    // If non-candidate documents are returned we show a recall of -1
                                     let recall = correctly_retrieved.map_or(-1.0, |cr| {
                                         cr as f32 / (number_fetched as f32 * 100.0)
                                     });
                                     recalls.push(Recall(recall));
                                 }
 
-                                let filtered_percentage = filtering.to_f32() * 100.0;
+                                let filtered_percentage = filtering.to_ratio_f32() * 100.0;
                                 println!(
                                     "[arroy]  {distance:16?} {oversampling}: {recalls:?}, \
-                                    indexed for: {time_to_index:02.2?}, \
                                     searched for: {time_to_search:02.2?}, \
-                                    size on disk: {database_size:#.2}, \
                                     searched in {filtered_percentage:#.2}%"
                                 );
                             }
