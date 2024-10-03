@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use arroy::distances::Angular;
 use arroy::internals::{self, NodeCodec};
 use arroy::{Database, Distance, ItemId, Writer};
 use byte_unit::{Byte, UnitType};
@@ -8,17 +10,19 @@ use heed::{EnvOpenOptions, RwTxn};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use roaring::RoaringBitmap;
 
+use crate::scenarios::*;
 use crate::{partial_sort_by, Recall, RECALL_TESTED, RNG_SEED};
 const TWENTY_HUNDRED_MIB: usize = 2000 * 1024 * 1024 * 1024;
 
 pub fn prepare_and_run<D, F>(points: &[(u32, &[f32])], execute: F)
 where
     D: Distance,
-    F: FnOnce(&heed::Env, Database<D>),
+    F: FnOnce(Duration, &heed::Env, Database<D>),
 {
+    let before_build = Instant::now();
     let dimensions = points[0].1.len();
 
     let dir = tempfile::tempdir().unwrap();
@@ -33,7 +37,87 @@ where
     let _inserted = load_into_arroy(&mut arroy_seed, &mut wtxn, database, dimensions, points);
     wtxn.commit().unwrap();
 
-    (execute)(&env, database);
+    (execute)(before_build.elapsed(), &env, database);
+}
+
+pub fn run_scenarios<D: Distance>(
+    env: &heed::Env,
+    time_to_index: Duration,
+    distance: &ScenarioDistance,
+    search: Vec<&ScenarioSearch>,
+    queries: Vec<(&u32, &&[f32], HashMap<ScenarioFiltering, (Option<RoaringBitmap>, Vec<u32>)>)>,
+    database: arroy::Database<D>,
+) {
+    let database_size =
+        Byte::from_u64(env.non_free_pages_size().unwrap()).get_appropriate_unit(UnitType::Binary);
+
+    println!("indexing: {time_to_index:02.2?}, size: {database_size:#.2}");
+
+    for ScenarioSearch { oversampling, filtering } in &search {
+        let mut time_to_search = Duration::default();
+        let mut recalls = Vec::new();
+        for number_fetched in RECALL_TESTED {
+            let (correctly_retrieved, duration) = queries
+                .par_iter()
+                .map(|(&id, _target, relevants)| {
+                    let rtxn = env.read_txn().unwrap();
+                    let reader = arroy::Reader::open(&rtxn, 0, database).unwrap();
+
+                    let (candidates, relevants) = &relevants[filtering];
+                    // Only keep the top number fetched documents.
+                    let relevants = relevants.get(..number_fetched).unwrap_or(relevants);
+
+                    let now = std::time::Instant::now();
+                    let arroy_answer = reader
+                        .nns_by_item(
+                            &rtxn,
+                            id,
+                            number_fetched,
+                            None,
+                            oversampling.to_non_zero_usize(),
+                            candidates.as_ref(),
+                        )
+                        .unwrap()
+                        .unwrap();
+                    let elapsed = now.elapsed();
+
+                    let mut correctly_retrieved = Some(0);
+                    for (id, _dist) in arroy_answer {
+                        if relevants.contains(&id) {
+                            if let Some(cr) = &mut correctly_retrieved {
+                                *cr += 1;
+                            }
+                        } else if let Some(cand) = candidates.as_ref() {
+                            // We set the counter to -1 if we return a filtered out candidated
+                            if !cand.contains(id) {
+                                correctly_retrieved = None;
+                            }
+                        }
+                    }
+
+                    (correctly_retrieved, elapsed)
+                })
+                .reduce(
+                    || (Some(0), Duration::default()),
+                    |(aanswer, aduration), (banswer, bduration)| {
+                        (aanswer.zip(banswer).map(|(a, b)| a + b), aduration + bduration)
+                    },
+                );
+
+            time_to_search += duration;
+            // If non-candidate documents are returned we show a recall of -1
+            let recall =
+                correctly_retrieved.map_or(-1.0, |cr| cr as f32 / (number_fetched as f32 * 100.0));
+            recalls.push(Recall(recall));
+        }
+
+        let filtered_percentage = filtering.to_ratio_f32() * 100.0;
+        println!(
+            "[arroy]  {distance:16?} {oversampling}: {recalls:?}, \
+                                    searched for: {time_to_search:02.2?}, \
+                                    searched in {filtered_percentage:#.2}%"
+        );
+    }
 }
 
 pub fn measure_arroy_distance<

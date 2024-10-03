@@ -1,167 +1,52 @@
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::Write as _;
-use std::num::NonZeroUsize;
-use std::time::{Duration, Instant};
 
 use arroy::distances::Angular;
-use benchmarks::{prepare_and_run, MatLEView, Recall, RECALL_TESTED, RNG_SEED};
-use byte_unit::{Byte, UnitType};
-use clap::{Parser, ValueEnum};
+use benchmarks::scenarios::ScenarioSearch;
+use benchmarks::{arroy_bench, scenarios, MatLEView, RECALL_TESTED, RNG_SEED};
+use clap::Parser;
 use enum_iterator::Sequence;
 use itertools::{iproduct, Itertools};
 use ordered_float::OrderedFloat;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom as _;
 use rand::SeedableRng;
-use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 use roaring::RoaringBitmap;
 use slice_group_by::GroupBy;
-
-#[derive(Debug, Copy, Clone, ValueEnum, Sequence)]
-enum Dataset {
-    /// Hackernews posts (512)
-    HnPosts,
-    /// Wikipedia (768)
-    Wikipedia,
-    /// Hackernews top posts (1024)
-    HnTopPost,
-    /// db pedia OpenAI text-embedding ada 002 (1536)
-    DbPediaAda002,
-    /// db pedia OpenAI text-embedding 3 large (3072)
-    DbPedia3Large,
-}
-
-impl From<Dataset> for MatLEView<f32> {
-    fn from(dataset: Dataset) -> Self {
-        match dataset {
-            Dataset::HnPosts => MatLEView::new("Hackernews posts", "assets/hn-posts.mat", 512),
-            Dataset::Wikipedia => MatLEView::new(
-                "wikipedia 22 12 simple embeddings",
-                "assets/wikipedia-22-12-simple-embeddings.mat",
-                768,
-            ),
-            Dataset::HnTopPost => {
-                MatLEView::new("Hackernews top posts", "assets/hn-top-posts.mat", 1024)
-            }
-            Dataset::DbPediaAda002 => MatLEView::new(
-                "db pedia OpenAI text-embedding ada  002",
-                "assets/db-pedia-OpenAI-text-embedding-ada-002.mat",
-                1536,
-            ),
-            Dataset::DbPedia3Large => MatLEView::new(
-                "db pedia OpenAI text-embedding 3 large",
-                "assets/db-pedia-OpenAI-text-embedding-3-large.mat",
-                3072,
-            ),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Sequence)]
-enum ScenarioContender {
-    Qdrant,
-    Arroy,
-    // Typesense,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Sequence)]
-enum ScenarioDistance {
-    Cosine,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Sequence)]
-enum ScenarioOversampling {
-    X1,
-    X3,
-}
-
-impl ScenarioOversampling {
-    pub fn to_non_zero_usize(self) -> Option<NonZeroUsize> {
-        match self {
-            ScenarioOversampling::X1 => None,
-            ScenarioOversampling::X3 => NonZeroUsize::new(3),
-        }
-    }
-}
-
-impl fmt::Display for ScenarioOversampling {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ScenarioOversampling::X1 => f.write_str("x1"),
-            ScenarioOversampling::X3 => f.write_str("x3"),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, ValueEnum, Sequence)]
-enum ScenarioFiltering {
-    NoFilter,
-    Filter50,
-    Filter25,
-    Filter15,
-    Filter10,
-    Filter8,
-    Filter6,
-    Filter2,
-    Filter1,
-}
-
-impl ScenarioFiltering {
-    pub fn to_ratio_f32(self) -> f32 {
-        match self {
-            ScenarioFiltering::NoFilter => 1.0,
-            ScenarioFiltering::Filter50 => 0.50,
-            ScenarioFiltering::Filter25 => 0.25,
-            ScenarioFiltering::Filter15 => 0.15,
-            ScenarioFiltering::Filter10 => 0.1,
-            ScenarioFiltering::Filter8 => 0.08,
-            ScenarioFiltering::Filter6 => 0.06,
-            ScenarioFiltering::Filter2 => 0.02,
-            ScenarioFiltering::Filter1 => 0.01,
-        }
-    }
-}
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     /// The datasets to run and all of them are ran if empty.
     #[arg(long, value_enum)]
-    datasets: Vec<Dataset>,
+    datasets: Vec<scenarios::Dataset>,
 
     #[arg(long, value_enum)]
-    contenders: Vec<ScenarioContender>,
+    contenders: Vec<scenarios::ScenarioContender>,
 
     #[arg(long, value_enum)]
-    distances: Vec<ScenarioDistance>,
+    distances: Vec<scenarios::ScenarioDistance>,
 
     #[arg(long, value_enum)]
-    over_samplings: Vec<ScenarioOversampling>,
+    over_samplings: Vec<scenarios::ScenarioOversampling>,
 
     #[arg(long, value_enum)]
-    filterings: Vec<ScenarioFiltering>,
+    filterings: Vec<scenarios::ScenarioFiltering>,
 
     /// Number of vectors to evaluate from the datasets.
     #[arg(long, default_value_t = 10_000)]
     count: usize,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct ScenarioSearch {
-    oversampling: ScenarioOversampling,
-    filtering: ScenarioFiltering,
-}
-
 fn main() {
     let Args { datasets, count, contenders, distances, over_samplings, filterings } = Args::parse();
 
     let datasets = set_or_all::<_, MatLEView<f32>>(datasets);
-    let contenders = set_or_all::<_, ScenarioContender>(contenders);
-    let distances = set_or_all::<_, ScenarioDistance>(distances);
-    let over_samplings = set_or_all::<_, ScenarioOversampling>(over_samplings);
-    let filterings = set_or_all::<_, ScenarioFiltering>(filterings);
+    let contenders = set_or_all::<_, scenarios::ScenarioContender>(contenders);
+    let distances = set_or_all::<_, scenarios::ScenarioDistance>(distances);
+    let over_samplings = set_or_all::<_, scenarios::ScenarioOversampling>(over_samplings);
+    let filterings = set_or_all::<_, scenarios::ScenarioFiltering>(filterings);
 
     let scenaris: Vec<_> = iproduct!(datasets, distances, contenders, over_samplings, filterings)
         .map(|(dataset, distance, contender, oversampling, filtering)| {
@@ -208,7 +93,7 @@ fn main() {
                     .iter()
                     .map(|ScenarioSearch { filtering, .. }| {
                         let candidates = match filtering {
-                            ScenarioFiltering::NoFilter => None,
+                            scenarios::ScenarioFiltering::NoFilter => None,
                             filtering => {
                                 let total = points.len() as f32;
                                 let filtering = filtering.to_ratio_f32();
@@ -239,94 +124,36 @@ fn main() {
             .collect();
 
         match contender {
-            ScenarioContender::Qdrant => todo!(),
-            ScenarioContender::Arroy => {
-                match distance {
-                    ScenarioDistance::Cosine => {
-                        let before_build = Instant::now();
-                        prepare_and_run::<Angular, _>(&points, |env, database| {
-                            let time_to_index = before_build.elapsed();
-                            let database_size = Byte::from_u64(env.non_free_pages_size().unwrap())
-                                .get_appropriate_unit(UnitType::Binary);
-
-                            println!("indexing: {time_to_index:02.2?}, size: {database_size:#.2}");
-
-                            for ScenarioSearch { oversampling, filtering } in &search {
-                                let mut time_to_search = Duration::default();
-                                let mut recalls = Vec::new();
-                                for number_fetched in RECALL_TESTED {
-                                    let (correctly_retrieved, duration) = queries
-                                        .par_iter()
-                                        .map(|(&id, _target, relevants)| {
-                                            let rtxn = env.read_txn().unwrap();
-                                            let reader =
-                                                arroy::Reader::open(&rtxn, 0, database).unwrap();
-
-                                            let (candidates, relevants) = &relevants[filtering];
-                                            // Only keep the top number fetched documents.
-                                            let relevants = relevants
-                                                .get(..number_fetched)
-                                                .unwrap_or(relevants);
-
-                                            let now = std::time::Instant::now();
-                                            let arroy_answer = reader
-                                                .nns_by_item(
-                                                    &rtxn,
-                                                    id,
-                                                    number_fetched,
-                                                    None,
-                                                    oversampling.to_non_zero_usize(),
-                                                    candidates.as_ref(),
-                                                )
-                                                .unwrap()
-                                                .unwrap();
-                                            let elapsed = now.elapsed();
-
-                                            let mut correctly_retrieved = Some(0);
-                                            for (id, _dist) in arroy_answer {
-                                                if relevants.contains(&id) {
-                                                    if let Some(cr) = &mut correctly_retrieved {
-                                                        *cr += 1;
-                                                    }
-                                                } else if let Some(cand) = candidates.as_ref() {
-                                                    // We set the counter to -1 if we return a filtered out candidated
-                                                    if !cand.contains(id) {
-                                                        correctly_retrieved = None;
-                                                    }
-                                                }
-                                            }
-
-                                            (correctly_retrieved, elapsed)
-                                        })
-                                        .reduce(
-                                            || (Some(0), Duration::default()),
-                                            |(aanswer, aduration), (banswer, bduration)| {
-                                                (
-                                                    aanswer.zip(banswer).map(|(a, b)| a + b),
-                                                    aduration + bduration,
-                                                )
-                                            },
-                                        );
-
-                                    time_to_search += duration;
-                                    // If non-candidate documents are returned we show a recall of -1
-                                    let recall = correctly_retrieved.map_or(-1.0, |cr| {
-                                        cr as f32 / (number_fetched as f32 * 100.0)
-                                    });
-                                    recalls.push(Recall(recall));
-                                }
-
-                                let filtered_percentage = filtering.to_ratio_f32() * 100.0;
-                                println!(
-                                    "[arroy]  {distance:16?} {oversampling}: {recalls:?}, \
-                                    searched for: {time_to_search:02.2?}, \
-                                    searched in {filtered_percentage:#.2}%"
-                                );
-                            }
-                        })
-                    }
-                }
-            }
+            scenarios::ScenarioContender::Qdrant => match distance {
+                scenarios::ScenarioDistance::Cosine => arroy_bench::prepare_and_run::<Angular, _>(
+                    &points,
+                    |time_to_index, env, database| {
+                        arroy_bench::run_scenarios(
+                            env,
+                            time_to_index,
+                            distance,
+                            search,
+                            queries,
+                            database,
+                        );
+                    },
+                ),
+            },
+            scenarios::ScenarioContender::Arroy => match distance {
+                scenarios::ScenarioDistance::Cosine => arroy_bench::prepare_and_run::<Angular, _>(
+                    &points,
+                    |time_to_index, env, database| {
+                        arroy_bench::run_scenarios(
+                            env,
+                            time_to_index,
+                            distance,
+                            search,
+                            queries,
+                            database,
+                        );
+                    },
+                ),
+            },
         }
 
         println!();

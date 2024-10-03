@@ -1,80 +1,22 @@
 #![allow(clippy::type_complexity)]
 
-mod arroy_bench;
+pub mod arroy_bench;
 mod dataset;
-mod qdrant;
+mod qdrant_bench;
+pub mod scenarios;
 
 use std::fmt;
-use std::fmt::Write;
 
 use arroy::distances::*;
 use arroy::internals::{Leaf, UnalignedVector};
 use arroy::ItemId;
-use arroy_bench::measure_arroy_distance;
-pub use arroy_bench::prepare_and_run;
 pub use dataset::*;
 use qdrant_client::qdrant::{quantization_config, ScalarQuantizationBuilder};
 
-use crate::qdrant::measure_qdrant_distance;
+use crate::qdrant_bench::measure_qdrant_distance;
 
 pub const RECALL_TESTED: [usize; 6] = [1, 10, 20, 50, 100, 500];
 pub const RNG_SEED: u64 = 38;
-
-pub fn bench_over_all_distances(dimensions: usize, vectors: &[(u32, &[f32])]) {
-    println!("\x1b[1m{}\x1b[0m vectors are used for this measure", vectors.len());
-    let mut recall_tested = String::new();
-    RECALL_TESTED.iter().for_each(|recall| write!(&mut recall_tested, "{recall:4}, ").unwrap());
-    let recall_tested = recall_tested.trim_end_matches(", ");
-    println!("Recall tested is:             [{recall_tested}]");
-
-    for func in &[
-        // arroy
-        bench_arroy_distance::<Angular, 1, 100>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1, 100>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3, 100>(),
-        bench_arroy_distance::<Angular, 1, 50>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1, 50>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3, 50>(),
-        bench_arroy_distance::<Angular, 1, 2>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 1, 2>(),
-        bench_arroy_distance::<BinaryQuantizedAngular, 3, 2>(),
-        // qdrant
-        bench_qdrant_distance::<Angular, false, 100>(),
-        bench_qdrant_distance::<Angular, true, 100>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false, 100>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true, 100>(),
-        bench_qdrant_distance::<Angular, false, 50>(),
-        bench_qdrant_distance::<Angular, true, 50>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false, 50>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true, 50>(),
-        bench_qdrant_distance::<Angular, false, 2>(),
-        bench_qdrant_distance::<Angular, true, 2>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, false, 2>(),
-        bench_qdrant_distance::<BinaryQuantizedAngular, true, 2>(),
-        // bench_arroy_distance::<Angular, 1>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, false>(),
-        // bench_qdrant_distance::<BinaryQuantizedAngular, true>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedAngular, 3>(),
-        // manhattan
-        // bench_qdrant_distance::<Manhattan, false>(),
-        // bench_arroy_distance::<Manhattan, 1>(),
-        // bench_qdrant_distance::<BinaryQuantizedManhattan, false>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedManhattan, 3>(),
-        // euclidean
-        // bench_qdrant_distance::<Euclidean, false>(),
-        // bench_arroy_distance::<Euclidean, 1>(),
-        // bench_qdrant_distance::<BinaryQuantizedEuclidean, false>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 1>(),
-        // bench_arroy_distance::<BinaryQuantizedEuclidean, 3>(),
-        // dot-product
-        // bench_qdrant_distance::<DotProduct, false>(),
-        // bench_arroy_distance::<DotProduct, 1>(),
-    ] {
-        (func)(dimensions, vectors);
-    }
-}
 
 /// A generalist distance trait that contains the informations required to configure every engine
 trait Distance: arroy::Distance {
@@ -116,14 +58,6 @@ arroy_distance!(Euclidean => qdrant: Euclid);
 arroy_distance!(BinaryQuantizedManhattan => real: Manhattan, qdrant: Manhattan);
 arroy_distance!(Manhattan => qdrant: Manhattan);
 arroy_distance!(DotProduct => qdrant: Dot);
-
-fn bench_arroy_distance<
-    D: Distance,
-    const OVERSAMPLING: usize,
-    const FILTER_SUBSET_PERCENT: usize,
->() -> fn(usize, &[(u32, &[f32])]) {
-    measure_arroy_distance::<D, D::RealDistance, OVERSAMPLING, FILTER_SUBSET_PERCENT>
-}
 
 fn bench_qdrant_distance<D: Distance, const EXACT: bool, const FILTER_SUBSET_PERCENT: usize>(
 ) -> fn(usize, &[(u32, &[f32])]) {

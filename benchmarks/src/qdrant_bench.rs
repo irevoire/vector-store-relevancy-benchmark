@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -12,8 +13,153 @@ use qdrant_client::{Payload, Qdrant};
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use roaring::RoaringBitmap;
 
+use crate::scenarios::*;
 use crate::{partial_sort_by, Distance, Recall, RECALL_TESTED, RNG_SEED};
+
+pub fn prepare_and_run<D, F>(points: &[(u32, &[f32])], execute: F)
+where
+    D: Distance,
+    F: FnOnce(Duration, &Qdrant),
+{
+    let before_build = Instant::now();
+    let dimensions = points[0].1.len();
+
+    let points: Vec<_> = points
+        .iter()
+        .map(|(id, vector)| {
+            PointStruct::new(
+                *id as u64,
+                vector.to_vec(),
+                Payload::try_from(serde_json::json!({ "id": *id })).unwrap(),
+            )
+        })
+        .collect();
+
+    let client = tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let ip = Ipv4Addr::from_str("127.0.0.1").unwrap();
+        let port = 6334;
+        let url = format!("http://{}:{}/", ip, port);
+        let client = Qdrant::from_url(&url).timeout(Duration::from_secs(1800)).build().unwrap();
+        let collection_name = "hello";
+
+        let _ = client.delete_collection(collection_name).await;
+
+        client
+            .create_collection(
+                CreateCollectionBuilder::new(collection_name)
+                    .vectors_config(VectorParamsBuilder::new(dimensions as u64, D::QDRANT_DISTANCE))
+                    .quantization_config(D::qdrant_quantization_config()),
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        client
+            .upsert_points_chunked(
+                UpsertPointsBuilder::new(collection_name, points.clone()).wait(true),
+                1000,
+            )
+            .await
+            .unwrap();
+
+        client
+    });
+
+    (execute)(before_build.elapsed(), &client);
+}
+
+pub fn run_scenarios<D: Distance>(
+    env: &heed::Env,
+    time_to_index: Duration,
+    distance: &ScenarioDistance,
+    search: Vec<&ScenarioSearch>,
+    queries: Vec<(&u32, &&[f32], HashMap<ScenarioFiltering, (Option<RoaringBitmap>, Vec<u32>)>)>,
+    database: arroy::Database<D>,
+) {
+    // let database_size =
+    //     Byte::from_u64(env.non_free_pages_size().unwrap()).get_appropriate_unit(UnitType::Binary);
+
+    // let mut database_size = 0u64;
+    // let collection_path = format!("storage/collections/{collection_name}");
+    // for result in walkdir::WalkDir::new(collection_path) {
+    //     let entry = match result {
+    //         Ok(entry) => entry,
+    //         _ => continue,
+    //     };
+    //     database_size += entry.metadata().map_or(0, |metadata| metadata.len());
+    // }
+    // let database_size = Byte::from_u64(database_size).get_appropriate_unit(UnitType::Binary);
+
+    // println!("indexing: {time_to_index:02.2?}, size: {database_size:#.2}");
+
+    for ScenarioSearch { oversampling, filtering } in &search {
+        //     let mut time_to_search = Duration::default();
+        //     let mut recalls = Vec::new();
+        //     for number_fetched in RECALL_TESTED {
+        //         let (correctly_retrieved, duration) = queries
+        //             .par_iter()
+        //             .map(|(&id, _target, relevants)| {
+        //                 let rtxn = env.read_txn().unwrap();
+        //                 let reader = arroy::Reader::open(&rtxn, 0, database).unwrap();
+
+        //                 let (candidates, relevants) = &relevants[filtering];
+        //                 // Only keep the top number fetched documents.
+        //                 let relevants = relevants.get(..number_fetched).unwrap_or(relevants);
+
+        //                 let now = std::time::Instant::now();
+        //                 let arroy_answer = reader
+        //                     .nns_by_item(
+        //                         &rtxn,
+        //                         id,
+        //                         number_fetched,
+        //                         None,
+        //                         oversampling.to_non_zero_usize(),
+        //                         candidates.as_ref(),
+        //                     )
+        //                     .unwrap()
+        //                     .unwrap();
+        //                 let elapsed = now.elapsed();
+
+        //                 let mut correctly_retrieved = Some(0);
+        //                 for (id, _dist) in arroy_answer {
+        //                     if relevants.contains(&id) {
+        //                         if let Some(cr) = &mut correctly_retrieved {
+        //                             *cr += 1;
+        //                         }
+        //                     } else if let Some(cand) = candidates.as_ref() {
+        //                         // We set the counter to -1 if we return a filtered out candidated
+        //                         if !cand.contains(id) {
+        //                             correctly_retrieved = None;
+        //                         }
+        //                     }
+        //                 }
+
+        //                 (correctly_retrieved, elapsed)
+        //             })
+        //             .reduce(
+        //                 || (Some(0), Duration::default()),
+        //                 |(aanswer, aduration), (banswer, bduration)| {
+        //                     (aanswer.zip(banswer).map(|(a, b)| a + b), aduration + bduration)
+        //                 },
+        //             );
+
+        //         time_to_search += duration;
+        //         // If non-candidate documents are returned we show a recall of -1
+        //         let recall =
+        //             correctly_retrieved.map_or(-1.0, |cr| cr as f32 / (number_fetched as f32 * 100.0));
+        //         recalls.push(Recall(recall));
+        //     }
+
+        //     let filtered_percentage = filtering.to_ratio_f32() * 100.0;
+        //     println!(
+        //         "[arroy]  {distance:16?} {oversampling}: {recalls:?}, \
+        //                                 searched for: {time_to_search:02.2?}, \
+        //                                 searched in {filtered_percentage:#.2}%"
+        //     );
+    }
+}
 
 pub fn measure_qdrant_distance<
     D: Distance,
